@@ -1,0 +1,106 @@
+@import "../styles/globals.css";
+
+@layer base {
+  :root {
+    @apply font-sans;
+  }
+
+  body {
+    @apply m-0 min-w-[320px] bg-background text-foreground antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+}
+
+/* Squircle cards: a continuous, superellipse-like corner radius. */
+.squircle {
+  border-radius: 1rem 1.15rem 1rem 1.15rem / 1.15rem 1rem 1.15rem 1rem;
+}
+
+/* Glowing lightning-bolt logo */
+@keyframes bolt-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 2px rgba(251, 191, 36, 0.55));
+  }
+  50% {
+    filter: drop-shadow(0 0 9px rgba(251, 191, 36, 0.95));
+  }
+}
+.bolt-glow {
+  animation: bolt-glow 2.6s ease-in-out infinite;
+}
+
+/* Leaflet map */
+.leaflet-container {
+  font: inherit;
+  background: #e6ebf1;
+}
+.leaflet-control-attribution {
+  font-size: 10px;
+}
+
+/* Markers */
+.bs-marker {
+  background: transparent;
+  border: 0;
+}
+.bs-pin {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  border: 2px solid #fff;
+  font-size: 15px;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.28);
+}
+.bs-pin-pickup {
+  background: #64748b;
+}
+.bs-pin-dropoff {
+  background: #b45309;
+}
+.bs-courier {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+}
+.bs-courier-dot {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9999px;
+  background: #f97316;
+  border: 2px solid #fff;
+  font-size: 15px;
+  box-shadow: 0 6px 16px rgba(249, 115, 22, 0.5);
+}
+.bs-courier-pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: #f97316;
+  animation: bs-pulse 2s ease-out infinite;
+}
+@keyframes bs-pulse {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
