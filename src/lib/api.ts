@@ -67,6 +67,35 @@ export type Customer = {
   verified: boolean;
 };
 
+export type Account = {
+  id: string;
+  role: "admin" | "customer";
+  isAdmin: boolean;
+  name: string;
+  email: string;
+  phone: string;
+  birthday: string;
+  gender: string;
+  storeId?: string;
+  storeName?: string;
+};
+
+export type CrmCustomer = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  gender: string;
+  birthday: string;
+  age: number | null;
+  verified: boolean;
+  createdAt: string;
+  lastLoginAt: string | null;
+  orders: number;
+  spent: number;
+  lastOrderAt: string | null;
+};
+
 export type StoreSettings = {
   paymentTiming: "prepay" | "cod";
   defaultPaymentGateway: string;

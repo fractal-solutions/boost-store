@@ -14,6 +14,8 @@ export type CustomerRow = {
   email: string;
   phone: string;
   address: string;
+  birthday: string;
+  gender: string;
   password_hash: string;
   verified: number;
   last_login_at: string | null;
@@ -26,11 +28,24 @@ export type CustomerPublic = {
   email: string;
   phone: string;
   address: string;
+  birthday: string;
+  gender: string;
   verified: boolean;
 };
 
+const GENDERS = new Set(["male", "female", "other"]);
+
 function toPublic(row: CustomerRow): CustomerPublic {
-  return { id: row.id, name: row.name, email: row.email, phone: row.phone, address: row.address, verified: Number(row.verified) === 1 };
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    phone: row.phone,
+    address: row.address,
+    birthday: row.birthday ?? "",
+    gender: row.gender ?? "",
+    verified: Number(row.verified) === 1,
+  };
 }
 
 function normalizePhone(input: string): string {
@@ -160,10 +175,16 @@ export async function registerCustomer(store: StoreRow, body: Record<string, unk
   const email = String(body.email ?? "").trim().toLowerCase();
   const phone = normalizePhone(String(body.phone ?? ""));
   const password = String(body.password ?? "");
+  const birthday = String(body.birthday ?? "").trim();
+  const gender = String(body.gender ?? "").trim().toLowerCase();
   if (name.length < 2) throw badRequest("VALIDATION_ERROR", "Enter your full name.");
   if (!isEmail(email)) throw badRequest("VALIDATION_ERROR", "Enter a valid email address.");
   if (phone.replace(/\D/g, "").length < 9) throw badRequest("VALIDATION_ERROR", "Enter a valid phone number.");
   if (password.length < 6) throw badRequest("VALIDATION_ERROR", "Password must be at least 6 characters.");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(birthday) || Number.isNaN(new Date(birthday).getTime())) {
+    throw badRequest("VALIDATION_ERROR", "Enter your birthday (YYYY-MM-DD).");
+  }
+  if (!GENDERS.has(gender)) throw badRequest("VALIDATION_ERROR", "Select your gender.");
 
   const existing = await findCustomerByEmail(store.id, email);
   const passwordHash = await Bun.password.hash(password);
@@ -172,7 +193,7 @@ export async function registerCustomer(store: StoreRow, body: Record<string, unk
   }
 
   if (existing) {
-    await db`UPDATE customers SET name = ${name}, phone = ${phone}, password_hash = ${passwordHash} WHERE id = ${existing.id}`;
+    await db`UPDATE customers SET name = ${name}, phone = ${phone}, birthday = ${birthday}, gender = ${gender}, password_hash = ${passwordHash} WHERE id = ${existing.id}`;
   } else {
     await db`INSERT INTO customers ${db({
       id: newId("cus"),
@@ -181,6 +202,8 @@ export async function registerCustomer(store: StoreRow, body: Record<string, unk
       email,
       phone,
       address: "",
+      birthday,
+      gender,
       password_hash: passwordHash,
       verified: 0,
       created_at: nowIso(),
@@ -246,4 +269,63 @@ export async function resetPassword(store: StoreRow, body: Record<string, unknow
 
 export function publicCustomer(row: CustomerRow): CustomerPublic {
   return toPublic(row);
+}
+
+// --- CRM ---
+
+export type CrmCustomer = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  gender: string;
+  birthday: string;
+  age: number | null;
+  verified: boolean;
+  createdAt: string;
+  lastLoginAt: string | null;
+  orders: number;
+  spent: number;
+  lastOrderAt: string | null;
+};
+
+function ageFrom(birthday: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(birthday)) return null;
+  const born = new Date(birthday);
+  if (Number.isNaN(born.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - born.getFullYear();
+  const month = now.getMonth() - born.getMonth();
+  if (month < 0 || (month === 0 && now.getDate() < born.getDate())) age -= 1;
+  return age >= 0 && age < 130 ? age : null;
+}
+
+/** Customer directory with CRM aggregates (orders, spend, last order, age). */
+export async function listCustomersWithCrm(storeId: string): Promise<CrmCustomer[]> {
+  const rows = (await db`
+    SELECT c.id, c.name, c.email, c.phone, c.gender, c.birthday, c.verified, c.created_at, c.last_login_at,
+           COUNT(o.id) AS orders,
+           COALESCE(SUM(CASE WHEN o.status != 'cancelled' THEN o.total ELSE 0 END), 0) AS spent,
+           MAX(o.created_at) AS last_order_at
+    FROM customers c
+    LEFT JOIN orders o ON o.customer_id = c.id
+    WHERE c.store_id = ${storeId}
+    GROUP BY c.id
+    ORDER BY c.created_at DESC
+    LIMIT 500`) as Record<string, unknown>[];
+  return rows.map((row) => ({
+    id: String(row.id),
+    name: String(row.name),
+    email: String(row.email),
+    phone: String(row.phone ?? ""),
+    gender: String(row.gender ?? ""),
+    birthday: String(row.birthday ?? ""),
+    age: ageFrom(String(row.birthday ?? "")),
+    verified: Number(row.verified) === 1,
+    createdAt: String(row.created_at),
+    lastLoginAt: row.last_login_at ? String(row.last_login_at) : null,
+    orders: Number(row.orders ?? 0),
+    spent: Number(row.spent ?? 0),
+    lastOrderAt: row.last_order_at ? String(row.last_order_at) : null,
+  }));
 }

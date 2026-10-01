@@ -57,6 +57,8 @@ CREATE TABLE IF NOT EXISTS customers (
   email TEXT NOT NULL,
   phone TEXT DEFAULT '',
   address TEXT DEFAULT '',
+  birthday TEXT DEFAULT '',
+  gender TEXT DEFAULT '',
   password_hash TEXT NOT NULL DEFAULT '',
   verified INTEGER NOT NULL DEFAULT 0,
   last_login_at TEXT,

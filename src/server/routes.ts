@@ -49,6 +49,7 @@ import { login, logout, register, requireSession, resolveSession, SESSION_COOKIE
 import {
   CUSTOMER_COOKIE,
   forgotPassword,
+  listCustomersWithCrm,
   loginCustomer,
   logoutCustomer,
   publicCustomer,
@@ -58,6 +59,7 @@ import {
   resolveCustomer,
   verifySignup,
 } from "./customers";
+import { accountFromCustomer, getAccount, loginAccount, logoutAccount } from "./account";
 import { getSettings, getStoreRow, storeSummary, updateStore, type StoreRow } from "./stores";
 import { listDeliveryProviders, type DeliveryAddress } from "./delivery";
 
@@ -434,6 +436,60 @@ export function apiRoutes(): Record<string, unknown> {
       }),
     },
 
+    // --- unified accounts (admin + shopper share one login/logout) ---
+
+    "/api/account/login": {
+      POST: route(async (req) => {
+        const { store } = await publicStore(req);
+        const { account, cookie, token } = await loginAccount(store, await readJson(req));
+        return Response.json({ success: true, data: account }, { headers: { "Set-Cookie": cookieHeader(cookie, token) } });
+      }),
+    },
+
+    "/api/account/register": {
+      POST: route(async (req) => {
+        const { store } = await publicStore(req);
+        return json(await registerCustomer(store, await readJson(req)), 201);
+      }),
+    },
+
+    "/api/account/verify": {
+      POST: route(async (req) => {
+        const { store } = await publicStore(req);
+        const { user, token } = await verifySignup(store, await readJson(req));
+        return Response.json({ success: true, data: accountFromCustomer(user) }, { headers: { "Set-Cookie": cookieHeader(CUSTOMER_COOKIE, token) } });
+      }),
+    },
+
+    "/api/account/logout": {
+      POST: route(async (req) => {
+        await logoutAccount(req);
+        const headers = new Headers();
+        headers.append("Set-Cookie", clearCookieHeader(SESSION_COOKIE));
+        headers.append("Set-Cookie", clearCookieHeader(CUSTOMER_COOKIE));
+        return Response.json({ success: true, data: null }, { headers });
+      }),
+    },
+
+    "/api/account/me": {
+      GET: route(async (req) => json(await getAccount(req))),
+    },
+
+    "/api/account/forgot": {
+      POST: route(async (req) => {
+        const { store } = await publicStore(req);
+        return json(await forgotPassword(store, await readJson(req)));
+      }),
+    },
+
+    "/api/account/reset": {
+      POST: route(async (req) => {
+        const { store } = await publicStore(req);
+        const { user, token } = await resetPassword(store, await readJson(req));
+        return Response.json({ success: true, data: accountFromCustomer(user) }, { headers: { "Set-Cookie": cookieHeader(CUSTOMER_COOKIE, token) } });
+      }),
+    },
+
     // --- admin ---
 
     "/api/admin/products": {
@@ -504,6 +560,13 @@ export function apiRoutes(): Record<string, unknown> {
       GET: route(async (req) => {
         const store = await adminStore(req);
         return json(await orderStats(store.id));
+      }),
+    },
+
+    "/api/admin/customers": {
+      GET: route(async (req) => {
+        const store = await adminStore(req);
+        return json(await listCustomersWithCrm(store.id));
       }),
     },
 

@@ -1,46 +1,54 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, Check, KeyRound, Loader2, Lock, LogOut, Mail, Package, Phone, ShieldCheck, User, X } from "lucide-react";
-import { api, type Customer } from "@/lib/api";
+import { ArrowLeft, Cake, Check, KeyRound, Loader2, Lock, LogOut, Mail, Package, Phone, ShieldCheck, User, UserRound, X } from "lucide-react";
+import { api, type Account } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type Mode = "signin" | "signup" | "otp" | "forgot" | "reset" | "account";
 
+const GENDERS = [
+  { value: "male", label: "Male" },
+  { value: "female", label: "Female" },
+  { value: "other", label: "Other" },
+];
+
 export function AuthScreen({
-  initialMode = "signin",
-  customer: initialCustomer,
+  account: initial,
   onClose,
   onAuthed,
   onOrders,
 }: {
-  initialMode?: Mode;
-  customer?: Customer | null;
+  account?: Account | null;
   onClose: () => void;
-  onAuthed: (customer: Customer | null) => void;
+  onAuthed: (account: Account | null) => void;
   onOrders?: () => void;
 }) {
-  const [customer, setCustomer] = useState<Customer | null>(initialCustomer ?? null);
-  const [mode, setMode] = useState<Mode>(initialCustomer ? "account" : initialMode);
+  const [account, setAccount] = useState<Account | null>(initial ?? null);
+  const [mode, setMode] = useState<Mode>(initial ? "account" : "signin");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [demoCode, setDemoCode] = useState("");
   const [termsOpen, setTermsOpen] = useState(false);
 
-  const [name, setName] = useState(initialCustomer?.name ?? "");
-  const [email, setEmail] = useState(initialCustomer?.email ?? "");
-  const [phone, setPhone] = useState(initialCustomer?.phone ?? "");
+  const [name, setName] = useState(initial?.name ?? "");
+  const [email, setEmail] = useState(initial?.email ?? "");
+  const [phone, setPhone] = useState(initial?.phone ?? "");
+  const [birthday, setBirthday] = useState(initial?.birthday ?? "");
+  const [gender, setGender] = useState(initial?.gender ?? "");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [acceptTerms, setAcceptTerms] = useState(false);
 
   useEffect(() => {
-    if (initialCustomer) return;
-    void api.get<Customer | null>("/api/customer/me").then((found) => {
+    if (initial) return;
+    void api.get<Account | null>("/api/account/me").then((found) => {
       if (found) {
-        setCustomer(found);
+        setAccount(found);
         setName(found.name);
         setEmail(found.email);
         setPhone(found.phone);
+        setBirthday(found.birthday);
+        setGender(found.gender);
         setMode("account");
       }
     }).catch(() => {});
@@ -49,11 +57,13 @@ export function AuthScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const finish = (user: Customer) => {
-    setCustomer(user);
+  const finish = (user: Account) => {
+    setAccount(user);
     setName(user.name);
     setEmail(user.email);
     setPhone(user.phone);
+    setBirthday(user.birthday);
+    setGender(user.gender);
     if (typeof localStorage !== "undefined") localStorage.setItem("boost-store-email", user.email);
     onAuthed(user);
     setMode("account");
@@ -85,35 +95,37 @@ export function AuthScreen({
   const doRegister = () =>
     run(async () => {
       if (!acceptTerms) throw new Error("Please accept the terms and conditions to continue.");
-      const res = await api.post<{ email: string; delivered: boolean; demoCode?: string }>("/api/customer/register", { name, email, phone, password });
+      if (!gender) throw new Error("Please select your gender.");
+      if (!birthday) throw new Error("Please enter your birthday.");
+      const res = await api.post<{ email: string; delivered: boolean; demoCode?: string }>("/api/account/register", { name, email, phone, birthday, gender, password });
       setDemoCode(res.demoCode ?? "");
       setNotice(res.delivered ? "We sent a 6-digit code to your email and WhatsApp." : "No OTP service configured — use the demo code below.");
       setMode("otp");
     });
 
-  const doVerify = () => run(async () => finish(await api.post<Customer>("/api/customer/verify", { email, code })));
-  const doLogin = () => run(async () => finish(await api.post<Customer>("/api/customer/login", { email, password })));
+  const doVerify = () => run(async () => finish(await api.post<Account>("/api/account/verify", { email, code })));
+  const doLogin = () => run(async () => finish(await api.post<Account>("/api/account/login", { email, password })));
 
   const doForgot = () =>
     run(async () => {
-      const res = await api.post<{ email: string; delivered: boolean; demoCode?: string }>("/api/customer/forgot", { email });
+      const res = await api.post<{ email: string; delivered: boolean; demoCode?: string }>("/api/account/forgot", { email });
       setDemoCode(res.demoCode ?? "");
       setNotice(res.delivered ? "If that email is registered, we sent a reset code." : "No OTP service configured — use the demo code below.");
       setMode("reset");
     });
 
-  const doReset = () => run(async () => finish(await api.post<Customer>("/api/customer/reset", { email, code, password })));
+  const doReset = () => run(async () => finish(await api.post<Account>("/api/account/reset", { email, code, password })));
 
   const doLogout = () =>
     run(async () => {
-      await api.post("/api/customer/logout");
-      setCustomer(null);
+      await api.post("/api/account/logout");
+      setAccount(null);
       onAuthed(null);
       setMode("signin");
     });
 
   const title = {
-    signin: "Welcome back",
+    signin: "Sign in",
     signup: "Create your account",
     otp: "Verify your account",
     forgot: "Reset your password",
@@ -131,7 +143,7 @@ export function AuthScreen({
         )}
         <div className="flex-1">
           <h1 className="font-display text-base font-bold">{title}</h1>
-          <p className="text-xs text-muted-foreground">Email + phone, OTP verified</p>
+          <p className="text-xs text-muted-foreground">One account — admin and shopper</p>
         </div>
         <button onClick={onClose} className="grid h-9 w-9 place-items-center rounded-full hover:bg-muted" aria-label="Close"><X className="h-5 w-5" /></button>
       </header>
@@ -158,6 +170,19 @@ export function AuthScreen({
             <Field label="Full name" Icon={User} value={name} onChange={setName} placeholder="Jane Doe" autoComplete="name" />
             <Field label="Email" Icon={Mail} value={email} onChange={setEmail} type="email" placeholder="you@example.com" autoComplete="email" />
             <Field label="Phone" Icon={Phone} value={phone} onChange={setPhone} type="tel" placeholder="0712 345 678" autoComplete="tel" helper="Used for delivery updates and WhatsApp OTP." />
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Birthday" Icon={Cake} value={birthday} onChange={setBirthday} type="date" />
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-medium">Gender</span>
+                <div className="flex items-center gap-2.5 rounded-xl border border-border/70 bg-background px-3.5 py-3 focus-within:ring-2 focus-within:ring-amber-500/30">
+                  <UserRound className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <select value={gender} onChange={(event) => setGender(event.target.value)} className="w-full bg-transparent text-sm outline-none">
+                    <option value="">Select…</option>
+                    {GENDERS.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
+                  </select>
+                </div>
+              </label>
+            </div>
             <Field label="Password" Icon={Lock} value={password} onChange={setPassword} type="password" placeholder="At least 6 characters" autoComplete="new-password" />
             <label className="flex items-start gap-2.5 text-sm">
               <input type="checkbox" checked={acceptTerms} onChange={(event) => setAcceptTerms(event.target.checked)} className="mt-0.5 h-4 w-4 accent-amber-700" />
@@ -198,17 +223,23 @@ export function AuthScreen({
           </div>
         )}
 
-        {mode === "account" && customer && (
+        {mode === "account" && account && (
           <div className="space-y-4">
             <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-card p-4">
-              <span className="grid h-12 w-12 place-items-center rounded-2xl bg-amber-700 text-lg font-bold text-white">{customer.name.charAt(0).toUpperCase()}</span>
+              <span className="grid h-12 w-12 place-items-center rounded-2xl bg-amber-700 text-lg font-bold text-white">{account.name.charAt(0).toUpperCase()}</span>
               <div className="min-w-0">
-                <p className="truncate font-semibold">{customer.name}</p>
-                <p className="truncate text-sm text-muted-foreground">{customer.email}</p>
-                <p className="truncate text-xs text-muted-foreground">{customer.phone}</p>
+                <p className="truncate font-semibold">{account.name}</p>
+                <p className="truncate text-sm text-muted-foreground">{account.email}</p>
+                <p className="truncate text-xs text-muted-foreground">{account.phone}</p>
               </div>
-              {customer.verified && <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-700"><Check className="h-3 w-3" /> Verified</span>}
+              {account.isAdmin && <span className="ml-auto rounded-full bg-slate-900 px-2 py-0.5 text-[11px] font-semibold text-amber-300">Admin</span>}
             </div>
+
+            <dl className="grid grid-cols-2 gap-2 text-sm">
+              <Meta label="Birthday" value={account.birthday || "—"} />
+              <Meta label="Gender" value={account.gender ? account.gender[0]!.toUpperCase() + account.gender.slice(1) : "—"} />
+            </dl>
+
             {onOrders && (
               <button onClick={() => { onClose(); onOrders(); }} className="flex w-full items-center gap-3 rounded-xl border border-border/60 p-3.5 text-sm font-medium transition hover:bg-muted">
                 <Package className="h-4 w-4 text-amber-700" /> My orders
@@ -258,6 +289,15 @@ export function AuthScreen({
       </footer>
 
       {termsOpen && <TermsModal onClose={() => setTermsOpen(false)} />}
+    </div>
+  );
+}
+
+function Meta({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-border/60 p-3">
+      <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</dt>
+      <dd className="mt-0.5 text-sm font-medium">{value}</dd>
     </div>
   );
 }

@@ -28,6 +28,8 @@ const migrations = [
   "ALTER TABLE customers ADD COLUMN password_hash TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE customers ADD COLUMN verified INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE customers ADD COLUMN last_login_at TEXT",
+  "ALTER TABLE customers ADD COLUMN birthday TEXT DEFAULT ''",
+  "ALTER TABLE customers ADD COLUMN gender TEXT DEFAULT ''",
 ];
 for (const statement of migrations) {
   try {

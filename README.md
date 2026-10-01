@@ -118,7 +118,9 @@ M-PESA is **off by default**. Enable it in **Admin → Payments**. With no crede
 
 ## Customer accounts (signup, OTP, terms)
 
-Shoppers can create an account with **name, email, phone and password** (Account button in the header, or **Account** in the bottom nav). Accounts are **verified with a 6-digit OTP** sent to email and WhatsApp.
+Shoppers create an account with **name, email, phone, birthday, gender and password** (Account button in the header, or **Account** in the bottom nav). Birthday and gender are captured for CRM. Accounts are **verified with a 6-digit OTP** sent to email and WhatsApp.
+
+Admins and shoppers use the **same sign-in / sign-out**: `POST /api/account/login` checks admin (merchant) credentials first, then shopper credentials, and `POST /api/account/logout` clears **both** sessions. The only difference is that admin accounts additionally see the bolt (admin panel).
 
 The OTP delivery is delegated to an **n8n (or similar) webhook** — the same pattern as the QR Base Odoo module:
 
@@ -137,15 +139,25 @@ Signed-in customers get **order history on any device** (`GET /api/orders` uses 
 
 ## Admin access
 
-The admin panel (dashboard, products, orders, payments, delivery, settings) is **only reachable after signing in with an admin (merchant) account**.
+The admin panel (dashboard, orders, products, CRM, payments, delivery, settings) is **only reachable when the signed-in account is an admin**.
 
-- Every `/api/admin/*` route requires the admin session cookie (`bs_session`) and returns `401` otherwise. Customers use a **separate** cookie (`bs_customer`), so a shopper account can never reach admin routes.
+- Admins sign in through the **same account screen** as shoppers (`/api/account/login`); the difference is that admin accounts show the **bolt** (admin entry) in the storefront header — shoppers never see it. Signing out (`/api/account/logout`) clears both sessions.
+- Every `/api/admin/*` route requires the admin session cookie (`bs_session`) and returns `401` otherwise. Shoppers use a **separate** cookie (`bs_customer`), so a shopper can never reach admin routes.
 - Admin accounts are **provisioned, not self-served**: `POST /api/auth/register` returns `403` by default. Create one from the CLI:
   ```sh
   bun run create-admin -- --name "Jane" --email jane@example.com --password secret123 --store "Jane Store"
   ```
   (Set `ALLOW_MERCHANT_SIGNUP=true` to re-enable public admin registration.)
-- Open the panel via the header **gear** icon, or go straight to it with `?admin` (e.g. `http://localhost:4000/?admin`).
+- Open the panel via the header **bolt** (admins only), or go straight to it with `?admin` (e.g. `http://localhost:4000/?admin`).
+
+## CRM
+
+**Admin → CRM** lists every customer with their CRM fields and aggregates:
+
+- name, email, phone, **gender**, **birthday** and derived **age**, verified status, sign-up date, last login;
+- **orders**, **lifetime spend** and **last order** (joined from the orders table).
+
+It has a search box, a gender filter, and summary tiles (total customers, new this month, customers with orders, lifetime spend). Data comes from `GET /api/admin/customers` (admin-only).
 
 ## Product mashup
 
@@ -207,6 +219,8 @@ Public:
 | `POST` | `/api/payments/mpesa/callback` | Daraja STK callback |
 | `POST` | `/api/delivery/webhook` | Uber webhook forwarded by boost-carrier |
 | `GET` | `/api/terms` | store terms & conditions |
+| `POST` | `/api/account/login`, `/logout`, `/register`, `/verify`, `/forgot`, `/reset` | unified account (admin + shopper) |
+| `GET` | `/api/account/me` | current account |
 | `POST` | `/api/customer/register` | create account + send OTP |
 | `POST` | `/api/customer/verify` | verify OTP (sets session) |
 | `POST` | `/api/customer/login`, `/logout` | customer session |
@@ -221,6 +235,7 @@ Auth + admin:
 | `GET` | `/api/auth/me` | current merchant |
 | `GET/POST/PATCH/DELETE` | `/api/admin/products` | product CRUD |
 | `GET` | `/api/admin/orders`, `/api/admin/stats` | orders + dashboard |
+| `GET` | `/api/admin/customers` | CRM customer directory |
 | `PATCH` | `/api/admin/orders/:id/status` | advance an order |
 | `POST` | `/api/admin/orders/:id/book-delivery` | (re)book the courier |
 | `GET/PUT` | `/api/admin/payments/gateways` | gateway config |

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
+import { Search } from "lucide-react";
 import { TrackOrder } from "../storefront/TrackOrder";
 import { Logo } from "../ui/Logo";
-import { api, placeholderImage, type GatewayView, type Order, type Product, type SessionUser, type StoreSummary } from "@/lib/api";
+import { api, placeholderImage, type Account, type CrmCustomer, type GatewayView, type Order, type Product, type StoreSummary } from "@/lib/api";
 import { formatDateTime, formatMoney, ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS, statusTone } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -9,13 +10,14 @@ const TABS = [
   { key: "dashboard", label: "Dashboard" },
   { key: "orders", label: "Orders" },
   { key: "products", label: "Products" },
+  { key: "crm", label: "CRM" },
   { key: "payments", label: "Payments" },
   { key: "delivery", label: "Delivery" },
   { key: "settings", label: "Settings" },
 ] as const;
 type Tab = (typeof TABS)[number]["key"];
 
-export function Admin({ user, onExit, onSignedIn }: { user: SessionUser | null; onExit: () => void; onSignedIn: () => void }) {
+export function Admin({ account, onExit, onSignOut }: { account: Account; onExit: () => void; onSignOut: () => void }) {
   const [tab, setTab] = useState<Tab>("dashboard");
   const [store, setStore] = useState<StoreSummary | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -45,10 +47,8 @@ export function Admin({ user, onExit, onSignedIn }: { user: SessionUser | null; 
   }, []);
 
   useEffect(() => {
-    if (user) void loadAll();
-  }, [user, loadAll]);
-
-  if (!user) return <LoginScreen onSignedIn={onSignedIn} />;
+    void loadAll();
+  }, [loadAll]);
 
   return (
     <div className="min-h-screen bg-muted/30">
@@ -59,9 +59,9 @@ export function Admin({ user, onExit, onSignedIn }: { user: SessionUser | null; 
             {store?.name ?? "Boost Store"} · Admin
           </div>
           <div className="flex items-center gap-2 text-sm">
-            <span className="hidden text-muted-foreground sm:inline">{user.email}</span>
+            <span className="hidden text-muted-foreground sm:inline">{account.email}</span>
             <button onClick={onExit} className="rounded-lg border px-3 py-1.5 hover:bg-muted">View store</button>
-            <button onClick={async () => { await api.post("/api/auth/logout"); onExit(); }} className="rounded-lg border px-3 py-1.5 hover:bg-muted">Sign out</button>
+            <button onClick={onSignOut} className="rounded-lg border px-3 py-1.5 hover:bg-muted">Sign out</button>
           </div>
         </div>
         <div className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-4">
@@ -115,6 +115,7 @@ export function Admin({ user, onExit, onSignedIn }: { user: SessionUser | null; 
         )}
 
         {tab === "products" && <ProductsPanel products={products} currency={store?.currency ?? "KES"} reload={loadAll} />}
+        {tab === "crm" && <CrmPanel currency={store?.currency ?? "KES"} />}
         {tab === "payments" && <PaymentsPanel gateways={gateways} reload={loadAll} />}
         {tab === "delivery" && store && <DeliveryPanel store={store} reload={loadAll} />}
         {tab === "settings" && store && <SettingsPanel store={store} reload={loadAll} />}
@@ -123,42 +124,87 @@ export function Admin({ user, onExit, onSignedIn }: { user: SessionUser | null; 
   );
 }
 
-function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) {
-  const [email, setEmail] = useState("demo@booststore.app");
-  const [password, setPassword] = useState("booststore");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+function CrmPanel({ currency }: { currency: string }) {
+  const [customers, setCustomers] = useState<CrmCustomer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
+  const [gender, setGender] = useState("");
 
-  const submit = async () => {
-    setBusy(true);
-    setError("");
-    try {
-      await api.post("/api/auth/login", { email, password });
-      onSignedIn();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed.");
-    } finally {
-      setBusy(false);
-    }
-  };
+  useEffect(() => {
+    void api.get<CrmCustomer[]>("/api/admin/customers").then(setCustomers).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const filtered = customers.filter((c) => {
+    if (gender && c.gender !== gender) return false;
+    if (query && !`${c.name} ${c.email} ${c.phone}`.toLowerCase().includes(query.toLowerCase())) return false;
+    return true;
+  });
+
+  const now = new Date();
+  const newThisMonth = customers.filter((c) => { const d = new Date(c.createdAt); return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth(); }).length;
+  const withOrders = customers.filter((c) => c.orders > 0).length;
+  const spend = customers.reduce((sum, c) => sum + c.spent, 0);
 
   return (
-    <div className="grid min-h-screen place-items-center bg-muted/30 p-4">
-      <div className="w-full max-w-sm rounded-2xl border bg-background p-6">
-        <h1 className="text-lg font-semibold">Admin sign in</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Restricted to store administrators.</p>
-        <label className="mt-4 block text-sm">
-          <span className="mb-1 block text-muted-foreground">Email</span>
-          <input value={email} onChange={(event) => setEmail(event.target.value)} className="w-full rounded-lg border px-3 py-2" />
-        </label>
-        <label className="mt-3 block text-sm">
-          <span className="mb-1 block text-muted-foreground">Password</span>
-          <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="w-full rounded-lg border px-3 py-2" />
-        </label>
-        {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
-        <button onClick={submit} disabled={busy} className="mt-4 w-full rounded-lg bg-amber-700 py-2.5 font-medium text-white disabled:opacity-50">
-          Sign in
-        </button>
+    <div className="space-y-5">
+      <div className="grid gap-4 sm:grid-cols-4">
+        <Stat label="Customers" value={String(customers.length)} />
+        <Stat label="New this month" value={String(newThisMonth)} />
+        <Stat label="With orders" value={String(withOrders)} />
+        <Stat label="Lifetime spend" value={formatMoney(spend, currency)} />
+      </div>
+
+      <div className="rounded-xl border bg-background p-4">
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <div className="flex flex-1 items-center gap-2 rounded-lg border px-3 py-2">
+            <Search className="h-4 w-4 text-muted-foreground" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, email or phone" className="w-full bg-transparent text-sm outline-none" />
+          </div>
+          <select value={gender} onChange={(event) => setGender(event.target.value)} className="rounded-lg border px-3 py-2 text-sm">
+            <option value="">All genders</option>
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Loading customers…</p>
+        ) : filtered.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No customers found.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-left text-muted-foreground">
+                <tr>
+                  <th className="py-2">Customer</th>
+                  <th>Gender</th>
+                  <th>Birthday</th>
+                  <th>Age</th>
+                  <th className="text-right">Orders</th>
+                  <th className="text-right">Spent</th>
+                  <th>Last order</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((c) => (
+                  <tr key={c.id} className="border-t">
+                    <td className="py-2">
+                      <p className="font-medium">{c.name}</p>
+                      <p className="text-xs text-muted-foreground">{c.email} · {c.phone}</p>
+                    </td>
+                    <td className="capitalize">{c.gender || "—"}</td>
+                    <td>{c.birthday || "—"}</td>
+                    <td>{c.age ?? "—"}</td>
+                    <td className="text-right">{c.orders}</td>
+                    <td className="text-right">{formatMoney(c.spent, currency)}</td>
+                    <td className="text-xs text-muted-foreground">{c.lastOrderAt ? formatDateTime(c.lastOrderAt) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
