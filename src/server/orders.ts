@@ -2,6 +2,7 @@ import { db } from "./db";
 import type { StoreSettings } from "./defaults";
 import { getDeliveryProvider, mapUberStatus, type DeliveryAddress, type QuoteResult } from "./delivery";
 import { defaultWarehouseRow, isOpenNow, parseHours, type WarehouseRow } from "./warehouses";
+import { syncStockForStatus, transitionStock } from "./inventory";
 import {
   ApiError,
   badRequest,
@@ -231,10 +232,6 @@ export async function createOrder(
       updated_at: now,
     })}`;
     for (const line of lines) await tx`INSERT INTO order_items ${tx({ ...line, order_id: orderId })}`;
-    for (const line of lines) {
-      await tx`UPDATE products SET stock = stock - ${line.quantity}, updated_at = ${now} WHERE id = ${line.product_id}`;
-      await tx`UPDATE inventory SET quantity = MAX(0, quantity - ${line.quantity}), updated_at = ${now} WHERE store_id = ${store.id} AND product_id = ${line.product_id}`;
-    }
     await tx`INSERT INTO order_events ${tx({
       id: newId("evt"),
       order_id: orderId,
@@ -254,6 +251,9 @@ export async function createOrder(
       })}`;
     }
   });
+
+  // Reserve stock (moves it out of "on hand"; not yet deducted from the system).
+  await transitionStock(store.id, orderId, "reserved");
 
   let order = (await getOrderRow(orderId))!;
 
@@ -392,6 +392,7 @@ export async function updateOrderStatus(orderId: string, status: string, message
   const etaMinutes = status === "delivered" ? 0 : order.eta_minutes;
   await db`UPDATE orders SET status = ${status}, progress_percent = ${STATUS_PROGRESS[status] ?? order.progress_percent}, eta_minutes = ${etaMinutes}, updated_at = ${nowIso()} WHERE id = ${orderId}`;
   await appendEvent(orderId, status, message ?? STATUS_MESSAGES[status] ?? `Status changed to ${status}`);
+  await syncStockForStatus(order.store_id, orderId, status);
   return (await getOrderRow(orderId))!;
 }
 
@@ -404,6 +405,7 @@ export async function confirmReceipt(orderId: string): Promise<Record<string, un
   }
   await db`UPDATE orders SET status = 'completed', progress_percent = 100, confirmed_at = ${nowIso()}, updated_at = ${nowIso()} WHERE id = ${orderId}`;
   await appendEvent(orderId, "completed", STATUS_MESSAGES.completed);
+  await syncStockForStatus(order.store_id, orderId, "completed");
   if (order.payment_timing === "cod") {
     await db`UPDATE orders SET payment_status = 'paid', payment_gateway = 'cod', payment_transaction_id = ${`COD-${order.id}`}, updated_at = ${nowIso()} WHERE id = ${orderId}`;
     await appendEvent(orderId, "completed", "Payment collected on delivery");
@@ -452,6 +454,7 @@ export async function bookDelivery(order: OrderRow, store: StoreRow): Promise<Or
       updated_at = ${nowIso()}
     WHERE id = ${order.id}`;
   await appendEvent(order.id, "dispatched", STATUS_MESSAGES.dispatched);
+  await syncStockForStatus(store.id, order.id, "dispatched");
   return (await getOrderRow(order.id))!;
 }
 
@@ -642,6 +645,7 @@ export async function applyDeliveryEvent(body: Record<string, unknown>): Promise
   if (mapped && mapped !== order.status && !TERMINAL_ORDER_STATUSES.has(order.status) && isForwardTransition(order.status, mapped)) {
     await db`UPDATE orders SET status = ${mapped}, progress_percent = ${STATUS_PROGRESS[mapped]}, eta_minutes = ${mapped === "delivered" ? 0 : order.eta_minutes}, updated_at = ${nowIso()} WHERE id = ${order.id}`;
     await appendEvent(order.id, mapped, STATUS_MESSAGES[mapped] ?? "Delivery update");
+    await syncStockForStatus(order.store_id, order.id, mapped);
   }
   return { handled: true, orderId: order.id, status: mapped ?? order.status };
 }

@@ -61,7 +61,7 @@ import {
 } from "./customers";
 import { accountFromCustomer, getAccount, loginAccount, logoutAccount } from "./account";
 import { createWarehouse, deleteWarehouse, listWarehouses, updateWarehouse } from "./warehouses";
-import { listInventory, setStock } from "./inventory";
+import { listInventory, setStock, productHistory } from "./inventory";
 import { getSettings, getStoreRow, storeSummary, updateStore, type StoreRow } from "./stores";
 import { listDeliveryProviders, type DeliveryAddress } from "./delivery";
 
@@ -609,6 +609,15 @@ export function apiRoutes(): Record<string, unknown> {
         const warehouseId = requireString(body.warehouseId, "warehouseId");
         await setStock(store.id, req.params.productId, warehouseId, Number(body.quantity ?? 0), Number(body.reorderLevel ?? 0));
         return json(await listInventory(store.id));
+      }),
+    },
+
+    "/api/admin/inventory/:productId/history": {
+      GET: route(async (req) => {
+        const store = await adminStore(req);
+        const history = await productHistory(store.id, req.params.productId);
+        if (!history) throw notFound("Product not found.");
+        return json(history);
       }),
     },
 

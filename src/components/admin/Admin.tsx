@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { Search } from "lucide-react";
+import { AlertTriangle, History as HistoryIcon, Search } from "lucide-react";
 import { TrackOrder } from "../storefront/TrackOrder";
 import { Logo } from "../ui/Logo";
-import { api, placeholderImage, type Account, type CrmCustomer, type GatewayView, type InventoryItem, type Order, type Product, type StoreSummary, type Warehouse } from "@/lib/api";
+import { api, placeholderImage, type Account, type CrmCustomer, type GatewayView, type InventoryItem, type Order, type Product, type ProductHistory, type StoreSummary, type Warehouse } from "@/lib/api";
 import { formatDateTime, formatMoney, ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS, statusTone } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -218,6 +218,8 @@ function InventoryPanel({ currency }: { currency: string }) {
   const [loading, setLoading] = useState(true);
   const [editingWarehouse, setEditingWarehouse] = useState<Partial<Warehouse> | null>(null);
   const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(null);
+  const [historyId, setHistoryId] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<ConfirmState>(null);
   const [query, setQuery] = useState("");
 
   const load = useCallback(async () => {
@@ -230,22 +232,31 @@ function InventoryPanel({ currency }: { currency: string }) {
     void load().finally(() => setLoading(false));
   }, [load]);
 
-  const saveStock = async (productId: string, patch: { warehouseId?: string; quantity?: number; reorderLevel?: number }) => {
-    const list = await api.patch<InventoryItem[]>(`/api/admin/inventory/${productId}`, patch);
-    setInventory(list);
-  };
+  const openEdit = (item: InventoryItem) =>
+    setEditingProduct({ id: item.productId, name: item.name, category: item.category, price: item.price, image: item.image, status: item.status, warehouseId: item.warehouseId, stock: item.quantity, reorderLevel: item.reorderLevel });
+
+  const askDeleteWarehouse = (w: Warehouse) =>
+    setConfirm({
+      title: "Delete warehouse?",
+      message: `“${w.name}” will be removed. Its products become unassigned but keep their catalogue entries.`,
+      confirmLabel: "Delete warehouse",
+      onConfirm: async () => {
+        await api.del(`/api/admin/warehouses/${w.id}`);
+        await load();
+      },
+    });
 
   const units = inventory.reduce((sum, item) => sum + item.quantity, 0);
-  const value = inventory.reduce((sum, item) => sum + item.value, 0);
   const low = inventory.filter((item) => item.low).length;
+  const inTransit = inventory.reduce((sum, item) => sum + item.inTransit, 0);
   const filtered = inventory.filter((item) => `${item.name} ${item.category} ${item.sku}`.toLowerCase().includes(query.toLowerCase()));
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="SKUs" value={String(inventory.length)} />
-        <Stat label="Units on hand" value={String(units)} />
-        <Stat label="Stock value" value={formatMoney(value, currency)} />
+        <Stat label="On hand" value={String(units)} />
+        <Stat label="In transit" value={String(inTransit)} />
         <Stat label="Low stock" value={String(low)} />
       </div>
 
@@ -272,7 +283,7 @@ function InventoryPanel({ currency }: { currency: string }) {
                 <p className="mt-1 text-xs text-muted-foreground">Hours: {w.hours.alwaysOpen ? "Always open" : `${w.hours.days.join(", ") || "no days"} · ${w.hours.open}–${w.hours.close}`}</p>
                 <div className="mt-2 flex gap-3 text-xs">
                   <button onClick={() => setEditingWarehouse(w)} className="text-amber-700 hover:underline">Edit</button>
-                  <button onClick={async () => { await api.del(`/api/admin/warehouses/${w.id}`); void load(); }} className="text-red-600 hover:underline">Delete</button>
+                  <button onClick={() => askDeleteWarehouse(w)} className="text-red-600 hover:underline">Delete</button>
                 </div>
               </div>
             ))}
@@ -294,59 +305,89 @@ function InventoryPanel({ currency }: { currency: string }) {
         ) : filtered.length === 0 ? (
           <p className="text-sm text-muted-foreground">No products.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-left text-muted-foreground">
-                <tr>
-                  <th className="py-2">Product</th>
-                  <th>Warehouse</th>
-                  <th className="text-right">On hand</th>
-                  <th className="text-right">Reorder at</th>
-                  <th className="text-right">Value</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((item) => (
-                  <tr key={item.productId} className="border-t">
-                    <td className="py-2">
-                      <div className="flex items-center gap-2">
-                        <img src={placeholderImage(item.image, 64)} alt="" className="h-9 w-9 rounded-lg object-cover" />
-                        <div>
-                          <p className="font-medium">
-                            {item.name}
-                            {item.low && <span className="ml-2 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-600">Low</span>}
-                          </p>
-                          <p className="text-xs text-muted-foreground">{item.category} · {item.status}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td>
-                      <select value={item.warehouseId} onChange={(event) => saveStock(item.productId, { warehouseId: event.target.value })} className="rounded-lg border px-2 py-1 text-xs">
-                        <option value="">Unassigned</option>
-                        {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-                      </select>
-                    </td>
-                    <td className="text-right">
-                      <input type="number" defaultValue={item.quantity} min={0} onBlur={(event) => { const v = Number(event.target.value); if (v !== item.quantity) void saveStock(item.productId, { quantity: v }); }} className="w-20 rounded-lg border px-2 py-1 text-right text-xs" />
-                    </td>
-                    <td className="text-right">
-                      <input type="number" defaultValue={item.reorderLevel} min={0} onBlur={(event) => { const v = Number(event.target.value); if (v !== item.reorderLevel) void saveStock(item.productId, { reorderLevel: v }); }} className="w-20 rounded-lg border px-2 py-1 text-right text-xs" />
-                    </td>
-                    <td className="text-right">{formatMoney(item.value, currency)}</td>
-                    <td className="text-right">
-                      <button onClick={() => setEditingProduct({ id: item.productId, name: item.name, category: item.category, price: item.price, image: item.image, status: item.status, warehouseId: item.warehouseId, stock: item.quantity, reorderLevel: item.reorderLevel })} className="text-xs text-amber-700 hover:underline">Edit</button>
-                    </td>
+          <>
+            {/* Mobile cards */}
+            <div className="space-y-3 sm:hidden">
+              {filtered.map((item) => (
+                <div key={item.productId} className="squircle border p-3">
+                  <div className="flex gap-3">
+                    <img src={placeholderImage(item.image, 64)} alt="" className="h-11 w-11 shrink-0 rounded-lg object-cover" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">
+                        {item.name}
+                        {item.low && <span className="ml-2 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-600">Low</span>}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">{item.category} · {item.warehouseName}</p>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    <MiniStat label="On hand" value={String(item.quantity)} />
+                    <MiniStat label="Reserved" value={String(item.reserved)} />
+                    <MiniStat label="In transit" value={String(item.inTransit)} />
+                  </div>
+                  <div className="mt-3 flex items-center gap-4 text-xs">
+                    <button onClick={() => openEdit(item)} className="text-amber-700 hover:underline">Edit</button>
+                    <button onClick={() => setHistoryId(item.productId)} className="inline-flex items-center gap-1 text-amber-700 hover:underline"><HistoryIcon className="h-3.5 w-3.5" /> History</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop table */}
+            <div className="hidden overflow-x-auto sm:block">
+              <table className="w-full text-sm">
+                <thead className="text-left text-muted-foreground">
+                  <tr>
+                    <th className="py-2">Product</th>
+                    <th>Warehouse</th>
+                    <th className="text-right">On hand</th>
+                    <th className="text-right">Reserved</th>
+                    <th className="text-right">In transit</th>
+                    <th className="text-right">Reorder</th>
+                    <th className="text-right">Value</th>
+                    <th className="text-right">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {filtered.map((item) => (
+                    <tr key={item.productId} className="border-t">
+                      <td className="py-2">
+                        <div className="flex items-center gap-2">
+                          <img src={placeholderImage(item.image, 64)} alt="" className="h-9 w-9 rounded-lg object-cover" />
+                          <div>
+                            <p className="font-medium">
+                              {item.name}
+                              {item.low && <span className="ml-2 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-600">Low</span>}
+                            </p>
+                            <p className="text-xs text-muted-foreground">{item.category} · {item.status}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="text-muted-foreground">{item.warehouseName}</td>
+                      <td className="text-right font-medium">{item.quantity}</td>
+                      <td className="text-right text-muted-foreground">{item.reserved}</td>
+                      <td className="text-right text-muted-foreground">{item.inTransit}</td>
+                      <td className="text-right text-muted-foreground">{item.reorderLevel}</td>
+                      <td className="text-right">{formatMoney(item.value, currency)}</td>
+                      <td className="text-right">
+                        <div className="flex justify-end gap-3 text-xs">
+                          <button onClick={() => setHistoryId(item.productId)} className="inline-flex items-center gap-1 text-amber-700 hover:underline"><HistoryIcon className="h-3.5 w-3.5" /> History</button>
+                          <button onClick={() => openEdit(item)} className="text-amber-700 hover:underline">Edit</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 
+      {confirm && <ConfirmDialog state={confirm} onClose={() => setConfirm(null)} />}
       {editingWarehouse && <WarehouseModal value={editingWarehouse} onClose={() => setEditingWarehouse(null)} onSaved={() => { setEditingWarehouse(null); void load(); }} />}
       {editingProduct && <CatalogModal value={editingProduct} warehouses={warehouses} onClose={() => setEditingProduct(null)} onSaved={() => { setEditingProduct(null); void load(); }} />}
+      {historyId && <HistoryModal productId={historyId} currency={currency} onClose={() => setHistoryId(null)} />}
     </div>
   );
 }
@@ -498,6 +539,113 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
         {children}
       </div>
     </div>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-border/60 p-2 text-center">
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="mt-0.5 text-sm font-semibold">{value}</p>
+    </div>
+  );
+}
+
+type ConfirmState = { title: string; message: string; confirmLabel?: string; onConfirm: () => void | Promise<void> } | null;
+
+function ConfirmDialog({ state, onClose }: { state: NonNullable<ConfirmState>; onClose: () => void }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="fixed inset-0 z-[60] grid place-items-center p-4">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative w-full max-w-sm overflow-hidden squircle bg-background p-5 shadow-2xl">
+        <div className="flex items-start gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-red-100 text-red-600"><AlertTriangle className="h-5 w-5" /></span>
+          <div className="min-w-0">
+            <p className="font-display font-semibold">{state.title}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{state.message}</p>
+          </div>
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-lg border px-4 py-2 text-sm">Cancel</button>
+          <button
+            onClick={async () => { setBusy(true); try { await state.onConfirm(); } finally { setBusy(false); onClose(); } }}
+            disabled={busy}
+            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:opacity-50"
+          >
+            {busy ? "Working…" : state.confirmLabel ?? "Confirm"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HistoryModal({ productId, currency, onClose }: { productId: string; currency: string; onClose: () => void }) {
+  const [history, setHistory] = useState<ProductHistory | null>(null);
+  useEffect(() => {
+    void api.get<ProductHistory>(`/api/admin/inventory/${productId}/history`).then(setHistory).catch(() => {});
+  }, [productId]);
+  const max = history ? Math.max(1, ...history.daily.map((d) => d.units)) : 1;
+
+  return (
+    <Modal onClose={onClose} title={history ? `${history.name} — performance` : "History"}>
+      {!history ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <MiniStat label="Units sold" value={String(history.unitsSold)} />
+            <MiniStat label="Revenue" value={formatMoney(history.revenue, currency)} />
+            <MiniStat label="Orders" value={String(history.orderCount)} />
+            <MiniStat label="On hand" value={String(history.onHand)} />
+          </div>
+
+          <div className="flex flex-wrap gap-2 text-xs">
+            <span className="rounded-full bg-muted px-2.5 py-1">Reserved: {history.reserved}</span>
+            <span className="rounded-full bg-muted px-2.5 py-1">In transit: {history.inTransit}</span>
+            <span className="rounded-full bg-muted px-2.5 py-1">Reorder at: {history.reorderLevel}</span>
+          </div>
+
+          <div className="rounded-xl border border-border/60 p-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium">Forecast</p>
+              <span className={cn("rounded-full px-2 py-0.5 text-[11px] capitalize", history.forecast.trend === "rising" ? "bg-green-100 text-green-700" : history.forecast.trend === "falling" ? "bg-red-100 text-red-600" : "bg-muted text-muted-foreground")}>{history.forecast.trend}</span>
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+              <div><p className="text-[11px] text-muted-foreground">Avg / day</p><p className="font-semibold">{history.forecast.avgDailyUnits}</p></div>
+              <div><p className="text-[11px] text-muted-foreground">Days of cover</p><p className="font-semibold">{history.forecast.daysOfCover ?? "—"}</p></div>
+              <div><p className="text-[11px] text-muted-foreground">Suggest reorder</p><p className="font-semibold">{history.forecast.suggestedReorder}</p></div>
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-2 text-sm font-medium">Units sold · last 30 days</p>
+            <div className="flex h-24 items-end gap-0.5">
+              {history.daily.map((day) => (
+                <div key={day.date} title={`${day.date}: ${day.units}`} className="flex-1 rounded-t bg-amber-600/70" style={{ height: `${(day.units / max) * 100}%`, minHeight: day.units > 0 ? 3 : 0 }} />
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-2 text-sm font-medium">Stock movements</p>
+            {history.movements.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No movements yet.</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {history.movements.map((m) => (
+                  <li key={m.id} className="flex items-center justify-between text-sm">
+                    <span className="capitalize">{m.type}</span>
+                    <span className="text-muted-foreground">{m.quantity} · {formatDateTime(m.createdAt)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }
 

@@ -77,11 +77,25 @@ CREATE TABLE IF NOT EXISTS inventory (
   product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
   warehouse_id TEXT NOT NULL REFERENCES warehouses(id) ON DELETE CASCADE,
   quantity INTEGER NOT NULL DEFAULT 0,
+  reserved INTEGER NOT NULL DEFAULT 0,
+  in_transit INTEGER NOT NULL DEFAULT 0,
   reorder_level INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL,
   UNIQUE (product_id, warehouse_id)
 );
 CREATE INDEX IF NOT EXISTS idx_inventory_store ON inventory(store_id);
+
+CREATE TABLE IF NOT EXISTS stock_movements (
+  id TEXT PRIMARY KEY,
+  store_id TEXT NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  warehouse_id TEXT DEFAULT '',
+  type TEXT NOT NULL,
+  quantity INTEGER NOT NULL,
+  reference TEXT DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_stock_movements_product ON stock_movements(store_id, product_id, created_at);
 
 CREATE TABLE IF NOT EXISTS customers (
   id TEXT PRIMARY KEY,
@@ -154,6 +168,7 @@ CREATE TABLE IF NOT EXISTS orders (
   payment_gateway TEXT DEFAULT '',
   payment_reference TEXT DEFAULT '',
   payment_transaction_id TEXT DEFAULT '',
+  stock_state TEXT NOT NULL DEFAULT '',
   confirmed_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL

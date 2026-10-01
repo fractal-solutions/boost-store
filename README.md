@@ -159,7 +159,11 @@ The admin panel (dashboard, orders, products, CRM, payments, delivery, settings)
 - **operating hours** — always-open, or specific days with open/close times (orders from a closed warehouse are rejected);
 - an active flag.
 
-Products belong to a warehouse and have a per-warehouse **stock level** and **reorder point**. The inventory view shows SKUs, on-hand units, stock value and **low-stock** warnings, with inline editing of warehouse, quantity and reorder level, plus product create/edit.
+Products belong to a warehouse and have a per-warehouse **stock level** and **reorder point**. The Inventory view is mobile-first (cards on phones, a table on larger screens) and shows SKUs, on-hand and in-transit units plus **low-stock** warnings. Warehouse, quantity and reorder level are edited in each item's modal, and destructive actions (e.g. deleting a warehouse) raise a confirmation dialog first.
+
+**Stock lifecycle** — placing an order **reserves** stock (on-hand → reserved); when the delivery is dispatched it becomes **in transit**; it is only fully deducted from the system once the order is **completed**. Cancelling an order returns stock to on-hand. Buckets are tracked per product in `inventory` (`quantity`, `reserved`, `in_transit`) with a `stock_movements` log.
+
+Each item has a **History** view: units sold, revenue and order count, a 30-day units chart, the stock-movement log, and a **forecast** (average daily sales, days of cover, suggested reorder quantity, and a rising/steady/falling trend).
 
 When a cart contains products from **more than one warehouse**, the order records `pickupStops` and a timeline note that the courier will make multiple pickups. The courier is still booked as a **single pickup** for now (the bundled mock Uber API has no multi-stop support) — the primary pickup is the warehouse holding the most items. The mock's limitations are the only reason multi-stop isn't wired end-to-end.
 
@@ -253,6 +257,7 @@ Auth + admin:
 | `PATCH/DELETE` | `/api/admin/warehouses/:id` | update / remove a warehouse |
 | `GET` | `/api/admin/inventory` | stock levels per product |
 | `PATCH` | `/api/admin/inventory/:productId` | set warehouse + stock + reorder |
+| `GET` | `/api/admin/inventory/:productId/history` | item performance + forecast |
 | `PATCH` | `/api/admin/orders/:id/status` | advance an order |
 | `POST` | `/api/admin/orders/:id/book-delivery` | (re)book the courier |
 | `GET/PUT` | `/api/admin/payments/gateways` | gateway config |

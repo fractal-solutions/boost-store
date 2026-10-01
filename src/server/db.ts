@@ -33,6 +33,9 @@ const migrations = [
   "ALTER TABLE products ADD COLUMN warehouse_id TEXT DEFAULT ''",
   "ALTER TABLE orders ADD COLUMN pickup_warehouse_id TEXT DEFAULT ''",
   "ALTER TABLE orders ADD COLUMN pickup_stops INTEGER NOT NULL DEFAULT 1",
+  "ALTER TABLE orders ADD COLUMN stock_state TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE inventory ADD COLUMN reserved INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE inventory ADD COLUMN in_transit INTEGER NOT NULL DEFAULT 0",
 ];
 for (const statement of migrations) {
   try {

@@ -48,9 +48,28 @@ export type InventoryItem = {
   warehouseId: string;
   warehouseName: string;
   quantity: number;
+  reserved: number;
+  inTransit: number;
   reorderLevel: number;
   low: boolean;
   value: number;
+};
+
+export type StockMovement = { id: string; type: string; quantity: number; reference: string; createdAt: string };
+
+export type ProductHistory = {
+  productId: string;
+  name: string;
+  onHand: number;
+  reserved: number;
+  inTransit: number;
+  reorderLevel: number;
+  unitsSold: number;
+  revenue: number;
+  orderCount: number;
+  daily: { date: string; units: number; revenue: number }[];
+  movements: StockMovement[];
+  forecast: { avgDailyUnits: number; daysOfCover: number | null; suggestedReorder: number; trend: "rising" | "steady" | "falling" };
 };
 
 export type Coords = { latitude: number; longitude: number };
