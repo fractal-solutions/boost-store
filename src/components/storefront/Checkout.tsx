@@ -16,7 +16,7 @@ import {
 import { AddressSearch } from "../map/AddressSearch";
 import { MapView } from "../map/MapView";
 import { ProductImage } from "../ui/ProductImage";
-import { api, type Coords, type Order, type Product, type StoreSummary } from "@/lib/api";
+import { api, type Coords, type Customer, type Order, type Product, type StoreSummary } from "@/lib/api";
 import { fetchRoute, formatDistance, formatDuration, reverseGeocode, type Place, type RouteResult } from "@/lib/mapConfig";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -41,20 +41,22 @@ function validateDetails(values: { name: string; email: string; phone: string })
 export function Checkout({
   cart,
   store,
+  customer,
   defaultTiming,
   onClose,
   onPlaced,
 }: {
   cart: CartItem[];
   store: StoreSummary;
+  customer?: Customer | null;
   defaultTiming: "prepay" | "cod";
   onClose: () => void;
   onPlaced: (order: Order) => void;
 }) {
   const [step, setStep] = useState(0);
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState(() => (typeof localStorage === "undefined" ? "" : localStorage.getItem("boost-store-email") ?? ""));
-  const [phone, setPhone] = useState("");
+  const [name, setName] = useState(customer?.name ?? "");
+  const [email, setEmail] = useState(customer?.email ?? (typeof localStorage === "undefined" ? "" : localStorage.getItem("boost-store-email") ?? ""));
+  const [phone, setPhone] = useState(customer?.phone ?? "");
   const [errors, setErrors] = useState<Errors>({});
   const [place, setPlace] = useState<Place | null>(null);
   const [dropoff, setDropoff] = useState<Coords>(store.settings.demoDropoff);

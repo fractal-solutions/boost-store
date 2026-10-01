@@ -57,9 +57,33 @@ CREATE TABLE IF NOT EXISTS customers (
   email TEXT NOT NULL,
   phone TEXT DEFAULT '',
   address TEXT DEFAULT '',
+  password_hash TEXT NOT NULL DEFAULT '',
+  verified INTEGER NOT NULL DEFAULT 0,
+  last_login_at TEXT,
   created_at TEXT NOT NULL,
   UNIQUE (store_id, email)
 );
+
+CREATE TABLE IF NOT EXISTS customer_sessions (
+  token TEXT PRIMARY KEY,
+  customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS customer_otps (
+  id TEXT PRIMARY KEY,
+  store_id TEXT NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  phone TEXT DEFAULT '',
+  purpose TEXT NOT NULL,
+  code TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_customer_otps ON customer_otps(store_id, email, purpose, status);
 
 CREATE TABLE IF NOT EXISTS orders (
   id TEXT PRIMARY KEY,

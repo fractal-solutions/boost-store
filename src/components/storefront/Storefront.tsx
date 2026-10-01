@@ -16,13 +16,15 @@ import {
   Sparkles,
   Star,
   Store,
+  User,
   X,
 } from "lucide-react";
 import { Checkout } from "./Checkout";
 import { TrackOrder } from "./TrackOrder";
+import { AuthScreen } from "../account/AuthScreen";
 import { Logo } from "../ui/Logo";
 import { ProductImage } from "../ui/ProductImage";
-import { api, type Mashup, type Order, type Product, type StoreSummary } from "@/lib/api";
+import { api, type Customer, type Mashup, type Order, type Product, type StoreSummary } from "@/lib/api";
 import { formatDateTime, formatMoney, ORDER_STATUS_LABELS, statusTone } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -72,9 +74,15 @@ export function Storefront({ store, onAdmin }: { store: StoreSummary; onAdmin?: 
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [order, setOrder] = useState<Order | null>(null);
+  const [customer, setCustomer] = useState<Customer | null>(null);
+  const [authOpen, setAuthOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
   const [sort, setSort] = useState("featured");
+
+  useEffect(() => {
+    void api.get<Customer | null>("/api/customer/me").then(setCustomer).catch(() => {});
+  }, []);
 
   useEffect(() => {
     void api.get<Product[]>("/api/products").then(setProducts).catch(() => {});
@@ -143,7 +151,17 @@ export function Storefront({ store, onAdmin }: { store: StoreSummary; onAdmin?: 
               </span>
               <span className="truncate text-base font-bold tracking-tight">{store.name}</span>
             </button>
+
+            <nav className="ml-3 hidden items-center gap-0.5 sm:flex">
+              <HeaderNav Icon={Home} label="Home" active={view === "home"} onClick={() => setView("home")} />
+              <HeaderNav Icon={Store} label="Shop" active={view === "shop"} onClick={() => setView("shop")} />
+              <HeaderNav Icon={Receipt} label="Orders" active={view === "orders"} onClick={() => setView("orders")} />
+            </nav>
+
             <div className="ml-auto flex items-center gap-1.5">
+              <button onClick={() => setAuthOpen(true)} className="grid h-10 w-10 place-items-center rounded-full border border-border/70 text-muted-foreground transition hover:bg-muted" aria-label="Account">
+                {customer ? <span className="grid h-7 w-7 place-items-center rounded-full bg-amber-700 text-xs font-bold text-white">{customer.name.charAt(0).toUpperCase()}</span> : <User className="h-4.5 w-4.5" />}
+              </button>
               {onAdmin && (
                 <button onClick={onAdmin} className="grid h-10 w-10 place-items-center rounded-full border border-border/70 text-muted-foreground transition hover:bg-muted" aria-label="Admin">
                   <Settings className="h-4.5 w-4.5" />
@@ -266,8 +284,10 @@ export function Storefront({ store, onAdmin }: { store: StoreSummary; onAdmin?: 
 
         {view === "orders" && (
           <OrdersView
+            customer={customer}
             onTrack={async (id) => setOrder(await api.get<Order>(`/api/orders/${id}`))}
             onShop={() => setView("shop")}
+            onSignIn={() => setAuthOpen(true)}
           />
         )}
       </main>
@@ -282,6 +302,7 @@ export function Storefront({ store, onAdmin }: { store: StoreSummary; onAdmin?: 
           <NavItem Icon={Home} label="Home" active={view === "home"} onClick={() => setView("home")} />
           <NavItem Icon={Store} label="Shop" active={view === "shop"} onClick={() => setView("shop")} />
           <NavItem Icon={Receipt} label="Orders" active={view === "orders"} onClick={() => setView("orders")} />
+          <NavItem Icon={User} label="Account" active={authOpen} onClick={() => setAuthOpen(true)} />
           <NavItem Icon={ShoppingCart} label="Cart" badge={cartCount} onClick={() => setCartOpen(true)} />
         </div>
       </nav>
@@ -306,9 +327,19 @@ export function Storefront({ store, onAdmin }: { store: StoreSummary; onAdmin?: 
         <Checkout
           cart={cart}
           store={store}
+          customer={customer}
           defaultTiming={store.settings.paymentTiming}
           onClose={() => setCheckoutOpen(false)}
           onPlaced={(placed) => { setCheckoutOpen(false); setCart([]); saveOrderId(placed.id); saveCustomerEmail(placed.customer?.email ?? ""); setOrder(placed); }}
+        />
+      )}
+
+      {authOpen && (
+        <AuthScreen
+          customer={customer}
+          onClose={() => setAuthOpen(false)}
+          onAuthed={(user) => setCustomer(user)}
+          onOrders={() => setView("orders")}
         />
       )}
     </div>
@@ -323,6 +354,15 @@ function NavItem({ Icon, label, active, badge, onClick }: { Icon: typeof Home; l
         {badge ? <span className="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full bg-amber-400 text-[10px] font-bold text-black">{badge}</span> : null}
       </span>
       <span className={cn("text-[10px]", active ? "font-semibold text-amber-800" : "text-muted-foreground")}>{label}</span>
+    </button>
+  );
+}
+
+function HeaderNav({ Icon, label, active, onClick }: { Icon: typeof Home; label: string; active?: boolean; onClick: () => void }) {
+  return (
+    <button onClick={onClick} className={cn("inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition", active ? "bg-amber-50 text-amber-800" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
+      <Icon className="h-4 w-4" />
+      {label}
     </button>
   );
 }
@@ -500,7 +540,7 @@ function CartSheet({ cart, currency, onClose, onUpdate, onCheckout }: { cart: Ca
   );
 }
 
-function OrdersView({ onTrack, onShop }: { onTrack: (id: string) => void; onShop: () => void }) {
+function OrdersView({ customer, onTrack, onShop, onSignIn }: { customer: Customer | null; onTrack: (id: string) => void; onShop: () => void; onSignIn: () => void }) {
   const [email, setEmail] = useState(readCustomerEmail());
   const [draft, setDraft] = useState(readCustomerEmail());
   const [orders, setOrders] = useState<Order[]>([]);
@@ -514,7 +554,9 @@ function OrdersView({ onTrack, onShop }: { onTrack: (id: string) => void; onShop
       setError("");
       try {
         let list: Order[] = [];
-        if (email) {
+        if (customer) {
+          list = await api.get<Order[]>("/api/orders");
+        } else if (email) {
           list = await api.get<Order[]>(`/api/orders?email=${encodeURIComponent(email)}`);
         } else {
           const ids = readSavedOrders();
@@ -534,7 +576,7 @@ function OrdersView({ onTrack, onShop }: { onTrack: (id: string) => void; onShop
     return () => {
       cancelled = true;
     };
-  }, [email]);
+  }, [email, customer]);
 
   const lookup = () => {
     const next = draft.trim().toLowerCase();
@@ -558,24 +600,25 @@ function OrdersView({ onTrack, onShop }: { onTrack: (id: string) => void; onShop
     );
   }
 
-  if (orders.length === 0 && !email) {
+  if (orders.length === 0 && !email && !customer) {
     return (
       <div className="mx-auto mt-12 max-w-sm px-2 text-center">
         <span className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-muted">
           <Package className="h-7 w-7 text-muted-foreground" />
         </span>
         <p className="mt-3 font-display text-lg font-bold">Find your orders</p>
-        <p className="mt-1 text-sm text-muted-foreground">Enter the email you used at checkout to see your orders on any device.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Sign in, or enter the email you used at checkout, to see your orders on any device.</p>
+        <button onClick={onSignIn} className="mt-4 w-full rounded-xl bg-amber-700 py-3 text-sm font-semibold text-white transition hover:bg-amber-800">Sign in or create account</button>
         <input
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => event.key === "Enter" && lookup()}
           placeholder="you@example.com"
           type="email"
-          className="mt-4 w-full rounded-xl border border-border/70 bg-background px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-amber-500/30"
+          className="mt-3 w-full rounded-xl border border-border/70 bg-background px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-amber-500/30"
         />
         {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
-        <button onClick={lookup} className="mt-3 w-full rounded-xl bg-amber-700 py-3 text-sm font-semibold text-white transition hover:bg-amber-800">Find my orders</button>
+        <button onClick={lookup} className="mt-2 w-full rounded-xl border border-border/70 py-3 text-sm font-semibold transition hover:bg-muted">Find my orders</button>
         <button onClick={onShop} className="mt-2 w-full rounded-xl border border-border/70 py-3 text-sm font-semibold transition hover:bg-muted">Start shopping</button>
       </div>
     );
@@ -601,8 +644,8 @@ function OrdersView({ onTrack, onShop }: { onTrack: (id: string) => void; onShop
   return (
     <section className="mt-4 space-y-7">
       <div className="flex items-center justify-between gap-3">
-        <p className="min-w-0 truncate text-xs text-muted-foreground">{email || "This device"}</p>
-        <button onClick={clearEmail} className="shrink-0 text-xs font-medium text-amber-800 hover:underline">Change email</button>
+        <p className="min-w-0 truncate text-xs text-muted-foreground">{customer ? customer.email : email || "This device"}</p>
+        {customer ? null : <button onClick={clearEmail} className="shrink-0 text-xs font-medium text-amber-800 hover:underline">Change email</button>}
       </div>
 
       {active.length > 0 && (

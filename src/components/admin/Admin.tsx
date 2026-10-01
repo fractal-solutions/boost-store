@@ -145,8 +145,8 @@ function LoginScreen({ onSignedIn }: { onSignedIn: () => void }) {
   return (
     <div className="grid min-h-screen place-items-center bg-muted/30 p-4">
       <div className="w-full max-w-sm rounded-2xl border bg-background p-6">
-        <h1 className="text-lg font-semibold">Sign in to your store</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Demo account is pre-filled.</p>
+        <h1 className="text-lg font-semibold">Admin sign in</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Restricted to store administrators.</p>
         <label className="mt-4 block text-sm">
           <span className="mb-1 block text-muted-foreground">Email</span>
           <input value={email} onChange={(event) => setEmail(event.target.value)} className="w-full rounded-lg border px-3 py-2" />
@@ -412,10 +412,12 @@ function SettingsPanel({ store, reload }: { store: StoreSummary; reload: () => v
   const [announcement, setAnnouncement] = useState(store.announcement);
   const [currency, setCurrency] = useState(store.currency);
   const [timing, setTiming] = useState(store.settings.paymentTiming);
+  const [terms, setTerms] = useState(store.settings.terms ?? "");
+  const [otpWebhook, setOtpWebhook] = useState(store.settings.otp?.webhookUrl ?? "");
   const [saved, setSaved] = useState(false);
 
   const save = async () => {
-    await api.patch("/api/admin/settings", { name, description, announcement, currency, paymentTiming: timing });
+    await api.patch("/api/admin/settings", { name, description, announcement, currency, paymentTiming: timing, terms, otp: { webhookUrl: otpWebhook } });
     setSaved(true);
     reload();
   };
@@ -434,6 +436,21 @@ function SettingsPanel({ store, reload }: { store: StoreSummary; reload: () => v
           <option value="cod">Pay on delivery</option>
         </select>
       </label>
+
+      <div className="space-y-3 rounded-xl border border-border/60 p-3">
+        <div>
+          <p className="text-sm font-medium">Customer onboarding</p>
+          <p className="text-xs text-muted-foreground">Signups are verified with a 6-digit OTP sent to email + WhatsApp.</p>
+        </div>
+        <Input label="OTP / n8n webhook URL" value={otpWebhook} onChange={setOtpWebhook} />
+        <p className="text-xs text-muted-foreground">Leave empty to show the OTP on screen (demo mode). When set, we POST <code className="rounded bg-muted px-1">{`{ event, purpose, otp_code, email, phone }`}</code> so n8n can deliver it.</p>
+      </div>
+
+      <label className="block text-sm">
+        <span className="mb-1 block text-muted-foreground">Terms &amp; conditions</span>
+        <textarea value={terms} onChange={(event) => setTerms(event.target.value)} className="h-40 w-full rounded-lg border px-3 py-2 font-mono text-xs" />
+      </label>
+
       <div className="flex items-center gap-3">
         <button onClick={save} className="rounded-lg bg-amber-700 px-4 py-2 text-sm text-white">Save</button>
         {saved && <span className="text-sm text-amber-800">Saved</span>}

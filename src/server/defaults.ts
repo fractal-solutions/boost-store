@@ -19,7 +19,24 @@ export type StoreSettings = {
   // Coordinates used for the delivery map when a customer does not pin a
   // location at checkout.
   demoDropoff: { latitude: number; longitude: number };
+  // Customer onboarding / OTP integration (n8n or similar webhook).
+  otp: { webhookUrl: string };
+  // Terms & conditions shown at signup; editable from the admin panel.
+  terms: string;
 };
+
+export const DEFAULT_TERMS = [
+  "## Terms & Conditions",
+  "",
+  "By creating an account you agree to these terms.",
+  "",
+  "- We collect your name, email and phone number to fulfil your orders and send delivery and OTP notifications.",
+  "- We may contact you by email or WhatsApp about your orders.",
+  "- Your data is stored securely and is not sold to third parties.",
+  "- You can request deletion of your account at any time.",
+  "",
+  "Replace this text in Admin → Settings to match your business.",
+].join("\n");
 
 export function defaultSettings(): StoreSettings {
   return {
@@ -52,6 +69,8 @@ export function defaultSettings(): StoreSettings {
       longitude: env.demoPickupLng,
     },
     demoDropoff: { latitude: env.demoDropoffLat, longitude: env.demoDropoffLng },
+    otp: { webhookUrl: env.otpWebhookUrl },
+    terms: DEFAULT_TERMS,
   };
 }
 

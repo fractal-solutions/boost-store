@@ -20,6 +20,14 @@ export const env = {
   // Shared secret used to verify inbound webhooks forwarded by boost-carrier.
   deliveryWebhookSecret: process.env.DELIVERY_WEBHOOK_SECRET || "",
 
+  // Customer onboarding OTP webhook (e.g. an n8n workflow that sends the code
+  // to email and WhatsApp). When empty, the code is shown to the user instead.
+  otpWebhookUrl: process.env.OTP_WEBHOOK_URL || "",
+
+  // Admin (merchant) accounts are provisioned by the operator. Public signup of
+  // new admin/merchant accounts is disabled unless explicitly enabled.
+  allowMerchantSignup: /^(1|true|yes|on)$/i.test(process.env.ALLOW_MERCHANT_SIGNUP || ""),
+
   // Payments: mock is always available; M-PESA (Daraja) is opt-in and can run
   // in placeholder mode without real credentials.
   mpesaEnabled: bool(process.env.MPESA_ENABLED, false),
@@ -58,6 +66,10 @@ export const env = {
   mapDefaultLat: Number(process.env.MAP_DEFAULT_LAT ?? "-1.2864"),
   mapDefaultLng: Number(process.env.MAP_DEFAULT_LNG ?? "36.8172"),
   mapDefaultZoom: Number(process.env.MAP_DEFAULT_ZOOM ?? 12),
+  // Product imagery. Defaults to Lorem Picsum (real photos, deterministic per
+  // seed, no key). Swap PRODUCT_IMAGE_URL for your own provider/template.
+  productImageEnabled: !/^(0|false|no|off)$/i.test(process.env.PRODUCT_IMAGE_ENABLED || "true"),
+  productImageUrl: process.env.PRODUCT_IMAGE_URL || "https://picsum.photos/seed/{seed}/{w}/{h}",
   // CARTO Basemaps API key (removes the "API key required" watermark).
   cartoApiKey: process.env.CARTO_API_KEY || "",
 };

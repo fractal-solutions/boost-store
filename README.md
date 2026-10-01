@@ -116,6 +116,37 @@ Two gateways, registered behind one interface (`src/server/payments.ts`):
 
 M-PESA is **off by default**. Enable it in **Admin → Payments**. With no credentials it runs in **placeholder mode**: it records a pending STK push and you confirm it from the order screen ("Simulate M-PESA confirmation"), or via `POST /api/orders/:id/simulate-callback`. Add real Daraja credentials (`consumerKey`, `consumerSecret`, `shortcode`, `passkey`) and it performs a real STK push, with callbacks at `POST /api/payments/mpesa/callback`.
 
+## Customer accounts (signup, OTP, terms)
+
+Shoppers can create an account with **name, email, phone and password** (Account button in the header, or **Account** in the bottom nav). Accounts are **verified with a 6-digit OTP** sent to email and WhatsApp.
+
+The OTP delivery is delegated to an **n8n (or similar) webhook** — the same pattern as the QR Base Odoo module:
+
+- Set the webhook URL in **Admin → Settings → Customer onboarding** (or `OTP_WEBHOOK_URL`). When set, the store `POST`s JSON:
+  ```json
+  { "event": "customer.otp_requested", "purpose": "signup", "otp_code": "123456", "email": "…", "phone": "…", "expires_in_minutes": 10, "store": { "id": "…", "name": "…" } }
+  ```
+  Your n8n workflow composes and sends the WhatsApp/email message.
+- **No webhook configured → demo mode:** the code is shown directly on the OTP screen so onboarding still works offline.
+
+Other flows: **sign in**, **forgot password** (email → OTP → new password), and **sign out**. Sessions are cookie-based (`bs_customer`) and separate from the merchant session.
+
+**Terms & conditions** are stored per-store and shown at signup (with a required checkbox). Edit them in **Admin → Settings → Terms & conditions**; they're served publicly at `GET /api/terms`.
+
+Signed-in customers get **order history on any device** (`GET /api/orders` uses the session); signed-out shoppers can look up orders by the email they used at checkout.
+
+## Admin access
+
+The admin panel (dashboard, products, orders, payments, delivery, settings) is **only reachable after signing in with an admin (merchant) account**.
+
+- Every `/api/admin/*` route requires the admin session cookie (`bs_session`) and returns `401` otherwise. Customers use a **separate** cookie (`bs_customer`), so a shopper account can never reach admin routes.
+- Admin accounts are **provisioned, not self-served**: `POST /api/auth/register` returns `403` by default. Create one from the CLI:
+  ```sh
+  bun run create-admin -- --name "Jane" --email jane@example.com --password secret123 --store "Jane Store"
+  ```
+  (Set `ALLOW_MERCHANT_SIGNUP=true` to re-enable public admin registration.)
+- Open the panel via the header **gear** icon, or go straight to it with `?admin` (e.g. `http://localhost:4000/?admin`).
+
 ## Product mashup
 
 The hero/landing uses a ranking + diversity algorithm (`src/server/mashup.ts`) exposed at `GET /api/mashup?theme=&limit=`:
@@ -149,6 +180,14 @@ Swap any provider with the `GEOCODER_URL`, `ROUTER_URL` / `ROUTER_PROFILE`, and 
 
 It polls the order every few seconds; the store persists courier coordinates and a ping history from each `event.courier_update` webhook.
 
+## Product images
+
+Product photos are served by `GET /api/placeholder/:seed` (used by `ProductImage`) — it proxies the configured image provider and caches results in memory:
+
+- Default: **Lorem Picsum** (`https://picsum.photos/seed/{seed}/{w}/{h}`) — real, deterministic photos per product, no key.
+- Point `PRODUCT_IMAGE_URL` at your own provider/AI endpoint (tokens `{seed}`, `{prompt}`, `{w}`, `{h}`).
+- If it's disabled (`PRODUCT_IMAGE_ENABLED=false`) or the provider fails, a clean SVG placeholder is used.
+
 ## API overview
 
 Public:
@@ -167,6 +206,12 @@ Public:
 | `POST` | `/api/orders/:id/simulate-callback` | confirm a pending (placeholder) payment |
 | `POST` | `/api/payments/mpesa/callback` | Daraja STK callback |
 | `POST` | `/api/delivery/webhook` | Uber webhook forwarded by boost-carrier |
+| `GET` | `/api/terms` | store terms & conditions |
+| `POST` | `/api/customer/register` | create account + send OTP |
+| `POST` | `/api/customer/verify` | verify OTP (sets session) |
+| `POST` | `/api/customer/login`, `/logout` | customer session |
+| `GET` | `/api/customer/me` | current customer |
+| `POST` | `/api/customer/forgot`, `/reset` | password reset via OTP |
 
 Auth + admin:
 
@@ -197,9 +242,12 @@ Copy `.env.example` to `.env`. Key variables:
 | `MPESA_ENV` | `sandbox` | `sandbox` / `production` |
 | `MPESA_CONSUMER_KEY` / `_SECRET` / `SHORTCODE` / `PASSKEY` | — | Daraja credentials |
 | `PAYMENT_TIMING_DEFAULT` | `prepay` | `prepay` / `cod` |
+| `OTP_WEBHOOK_URL` | — | n8n webhook for customer OTP (empty = demo code on screen) |
 | `GEOCODER_URL` | Photon | address search + reverse geocoding |
 | `ROUTER_URL` / `ROUTER_PROFILE` | OSRM / `driving` | routing between pickup and drop-off |
 | `MAP_TILE_URL` / `MAP_TILE_ATTRIBUTION` | CARTO | map tiles served to the browser |
+| `PRODUCT_IMAGE_URL` / `PRODUCT_IMAGE_ENABLED` | Picsum / `true` | product image provider |
+| `ALLOW_MERCHANT_SIGNUP` | `false` | allow public admin registration |
 | `DEMO_PICKUP_LAT/LNG`, `DEMO_DROPOFF_LAT/LNG` | Nairobi | demo map coordinates |
 
 ## Testing
@@ -274,6 +322,7 @@ In production mode Bun disables HMR and caches/minifies the frontend bundle in m
 | start | `bun run start` | production server (cross-platform) |
 | build | `bun run build` | static frontend export to `dist/` (no API) |
 | dev:stack | `bun run dev:stack` | mock Uber + boost-carrier + store |
+| create-admin | `bun run create-admin -- --name … --email … --password …` | provision an admin account |
 | db:reset | `bun run db:reset` | delete + reseed the SQLite database |
 | test | `bun test` | run tests |
 | allow-lan | `scripts/allow-lan.ps1` | Windows firewall rule so your phone can reach `:4000` |

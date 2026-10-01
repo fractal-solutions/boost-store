@@ -84,6 +84,10 @@ export async function updateStore(
   if (body.demoDropoff && typeof body.demoDropoff === "object") {
     settings.demoDropoff = { ...settings.demoDropoff, ...(body.demoDropoff as object) } as StoreSettings["demoDropoff"];
   }
+  if (typeof body.terms === "string") settings.terms = body.terms;
+  if (body.otp && typeof body.otp === "object") {
+    settings.otp = { ...settings.otp, ...(body.otp as object) } as StoreSettings["otp"];
+  }
   fields.settings = JSON.stringify(settings);
   fields.updated_at = nowIso();
 

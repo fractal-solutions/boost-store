@@ -25,6 +25,9 @@ const migrations = [
   "ALTER TABLE orders ADD COLUMN courier_phone TEXT DEFAULT ''",
   "ALTER TABLE orders ADD COLUMN courier_updated_at TEXT",
   "ALTER TABLE orders ADD COLUMN confirmed_at TEXT",
+  "ALTER TABLE customers ADD COLUMN password_hash TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE customers ADD COLUMN verified INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE customers ADD COLUMN last_login_at TEXT",
 ];
 for (const statement of migrations) {
   try {

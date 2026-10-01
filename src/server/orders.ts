@@ -250,6 +250,12 @@ export async function listOrdersByEmail(storeId: string, email: string): Promise
   return rows as OrderRow[];
 }
 
+/** A signed-in customer's orders. */
+export async function listOrdersByCustomer(storeId: string, customerId: string): Promise<OrderRow[]> {
+  const rows = await db`SELECT * FROM orders WHERE store_id = ${storeId} AND customer_id = ${customerId} ORDER BY created_at DESC LIMIT 50`;
+  return rows as OrderRow[];
+}
+
 export async function hydrateOrder(order: OrderRow): Promise<Record<string, unknown>> {
   const items = (await db`SELECT * FROM order_items WHERE order_id = ${order.id}`) as OrderItemRow[];
   const events = (await db`SELECT * FROM order_events WHERE order_id = ${order.id} ORDER BY created_at ASC`) as OrderEventRow[];

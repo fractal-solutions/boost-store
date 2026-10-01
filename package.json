@@ -8,6 +8,7 @@
     "start": "bun run scripts/start-prod.ts",
     "build": "bun run build.ts",
     "dev:stack": "bun run scripts/dev-stack.ts",
+    "create-admin": "bun run scripts/create-admin.ts",
     "db:reset": "bun run src/server/reset.ts",
     "test": "bun test"
   },

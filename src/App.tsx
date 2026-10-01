@@ -7,7 +7,9 @@ import "./index.css";
 export function App() {
   const [store, setStore] = useState<StoreSummary | null>(null);
   const [user, setUser] = useState<SessionUser | null>(null);
-  const [mode, setMode] = useState<"store" | "admin">("store");
+  const [mode, setMode] = useState<"store" | "admin">(() =>
+    typeof location !== "undefined" && /(^|[?&])admin(=|&|$)/.test(location.search) ? "admin" : "store",
+  );
   const [error, setError] = useState("");
 
   useEffect(() => {

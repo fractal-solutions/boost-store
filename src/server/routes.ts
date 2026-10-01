@@ -1,7 +1,9 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { db } from "./db";
 import { env } from "./env";
+import { productImage } from "./images";
 import {
+  ApiError,
   badRequest,
   clearCookieHeader,
   cookieHeader,
@@ -24,6 +26,7 @@ import {
   getOrderRow,
   hydrateOrder,
   listOrders,
+  listOrdersByCustomer,
   listOrdersByEmail,
   orderStats,
   payOrder,
@@ -43,6 +46,18 @@ import {
   updateProduct,
 } from "./products";
 import { login, logout, register, requireSession, resolveSession, SESSION_COOKIE } from "./auth";
+import {
+  CUSTOMER_COOKIE,
+  forgotPassword,
+  loginCustomer,
+  logoutCustomer,
+  publicCustomer,
+  registerCustomer,
+  requireCustomer,
+  resetPassword,
+  resolveCustomer,
+  verifySignup,
+} from "./customers";
 import { getSettings, getStoreRow, storeSummary, updateStore, type StoreRow } from "./stores";
 import { listDeliveryProviders, type DeliveryAddress } from "./delivery";
 
@@ -142,8 +157,15 @@ export function apiRoutes(): Record<string, unknown> {
 
     "/api/placeholder/:seed": route(async (req) => {
       const seed = str(req.params.seed, "boost");
+      const params = new URL(req.url).searchParams;
+      const size = Math.min(1024, Math.max(64, Number(params.get("size")) || 640));
+      const prompt = params.get("prompt") || `${seed.replace(/[-_]+/g, " ")} product photo, studio lighting, plain background, high detail`;
+      const image = await productImage(seed, prompt, size);
+      if (image) {
+        return new Response(image.body, { headers: { "Content-Type": image.type, "Cache-Control": "public, max-age=604800" } });
+      }
       return new Response(initialsSvg(seed), {
-        headers: { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400" },
+        headers: { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=3600" },
       });
     }),
 
@@ -238,8 +260,13 @@ export function apiRoutes(): Record<string, unknown> {
     "/api/orders": {
       GET: route(async (req) => {
         const { store } = await publicStore(req);
+        const customer = await resolveCustomer(req);
+        if (customer) {
+          const orders = await listOrdersByCustomer(store.id, customer.id);
+          return json(await Promise.all(orders.map(hydrateOrder)));
+        }
         const email = (new URL(req.url).searchParams.get("email") ?? "").trim().toLowerCase();
-        if (!email) throw badRequest("VALIDATION_ERROR", "An email address is required to list your orders.");
+        if (!email) throw badRequest("VALIDATION_ERROR", "Sign in or provide an email to list your orders.");
         const orders = await listOrdersByEmail(store.id, email);
         return json(await Promise.all(orders.map(hydrateOrder)));
       }),
@@ -317,6 +344,9 @@ export function apiRoutes(): Record<string, unknown> {
 
     "/api/auth/register": {
       POST: route(async (req) => {
+        if (!env.allowMerchantSignup) {
+          throw new ApiError(403, "SIGNUP_DISABLED", "Admin accounts are provisioned by the operator.");
+        }
         const { user, token } = await register(await readJson(req));
         return Response.json({ success: true, data: user }, { status: 201, headers: { "Set-Cookie": cookieHeader(SESSION_COOKIE, token) } });
       }),
@@ -340,6 +370,67 @@ export function apiRoutes(): Record<string, unknown> {
       GET: route(async (req) => {
         const user = await resolveSession(req);
         return json(user);
+      }),
+    },
+
+    "/api/terms": {
+      GET: route(async (req) => {
+        const { store, settings } = await publicStore(req);
+        return json({ store: store.name, terms: settings.terms });
+      }),
+    },
+
+    // --- customer accounts (email + phone, OTP verified) ---
+
+    "/api/customer/register": {
+      POST: route(async (req) => {
+        const { store } = await publicStore(req);
+        return json(await registerCustomer(store, await readJson(req)), 201);
+      }),
+    },
+
+    "/api/customer/verify": {
+      POST: route(async (req) => {
+        const { store } = await publicStore(req);
+        const { user, token } = await verifySignup(store, await readJson(req));
+        return Response.json({ success: true, data: user }, { headers: { "Set-Cookie": cookieHeader(CUSTOMER_COOKIE, token) } });
+      }),
+    },
+
+    "/api/customer/login": {
+      POST: route(async (req) => {
+        const { store } = await publicStore(req);
+        const { user, token } = await loginCustomer(store, await readJson(req));
+        return Response.json({ success: true, data: user }, { headers: { "Set-Cookie": cookieHeader(CUSTOMER_COOKIE, token) } });
+      }),
+    },
+
+    "/api/customer/logout": {
+      POST: route(async (req) => {
+        await logoutCustomer(parseCookies(req)[CUSTOMER_COOKIE]);
+        return Response.json({ success: true, data: null }, { headers: { "Set-Cookie": clearCookieHeader(CUSTOMER_COOKIE) } });
+      }),
+    },
+
+    "/api/customer/me": {
+      GET: route(async (req) => {
+        const customer = await resolveCustomer(req);
+        return json(customer ? publicCustomer(customer) : null);
+      }),
+    },
+
+    "/api/customer/forgot": {
+      POST: route(async (req) => {
+        const { store } = await publicStore(req);
+        return json(await forgotPassword(store, await readJson(req)));
+      }),
+    },
+
+    "/api/customer/reset": {
+      POST: route(async (req) => {
+        const { store } = await publicStore(req);
+        const { user, token } = await resetPassword(store, await readJson(req));
+        return Response.json({ success: true, data: user }, { headers: { "Set-Cookie": cookieHeader(CUSTOMER_COOKIE, token) } });
       }),
     },
 
@@ -452,7 +543,8 @@ export function apiRoutes(): Record<string, unknown> {
     },
 
     "/api/admin/delivery/providers": {
-      GET: route(async () => {
+      GET: route(async (req) => {
+        await adminStore(req);
         return json([{ key: "boost-carrier", label: "Boost (Uber Direct)" }, { key: "simulated", label: "Simulated courier" }]);
       }),
     },

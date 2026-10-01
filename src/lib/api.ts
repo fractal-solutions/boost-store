@@ -58,6 +58,15 @@ export type Order = {
 export type MashupItem = { product: Product; score: number; reason: string };
 export type Mashup = { theme: string; title: string; subtitle: string; seed: string; items: MashupItem[] };
 
+export type Customer = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  address: string;
+  verified: boolean;
+};
+
 export type StoreSettings = {
   paymentTiming: "prepay" | "cod";
   defaultPaymentGateway: string;
@@ -65,6 +74,8 @@ export type StoreSettings = {
   delivery: { provider: string; markup: number; boostCarrier: { baseUrl: string; customerId: string } };
   pickup: DeliveryAddress & { latitude: number; longitude: number };
   demoDropoff: Coords;
+  otp: { webhookUrl: string };
+  terms: string;
 };
 
 export type StoreSummary = {
