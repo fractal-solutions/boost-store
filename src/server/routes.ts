@@ -24,6 +24,7 @@ import {
   getOrderRow,
   hydrateOrder,
   listOrders,
+  listOrdersByEmail,
   orderStats,
   payOrder,
   productPopularity,
@@ -235,6 +236,13 @@ export function apiRoutes(): Record<string, unknown> {
     // --- checkout + orders ---
 
     "/api/orders": {
+      GET: route(async (req) => {
+        const { store } = await publicStore(req);
+        const email = (new URL(req.url).searchParams.get("email") ?? "").trim().toLowerCase();
+        if (!email) throw badRequest("VALIDATION_ERROR", "An email address is required to list your orders.");
+        const orders = await listOrdersByEmail(store.id, email);
+        return json(await Promise.all(orders.map(hydrateOrder)));
+      }),
       POST: route(async (req) => {
         const { store } = await publicStore(req);
         const body = await readJson(req);

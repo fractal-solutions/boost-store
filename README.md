@@ -63,7 +63,21 @@ The script skips any service that is already running, streams each service's log
 
 The flow: **store → boost-carrier → mock Uber**, and back via **mock Uber → boost-carrier → `/api/delivery/webhook`**, which drives the order status and the live map.
 
-> The bundled mock reports a fixed courier location in San Francisco (37.7749, -122.4194). `dev:stack` aligns the demo map coordinates to it. With real Uber credentials you'd instead see the courier move along the route.
+> The bundled mock reports a fixed courier location that isn't tied to Kenya. The store therefore places the courier **along the real route** (derived from the delivery status) whenever the provider's coordinates fall outside the delivery area, so the map still animates realistically. With real Uber credentials you get real, live courier coordinates.
+
+## Access from your phone (same Wi-Fi)
+
+The store binds to `0.0.0.0:4000`, so it is reachable across your network. Only port **4000** needs to be open — the store talks to boost-carrier and the mock on the server side.
+
+1. Find your computer's LAN IP (`ipconfig` on Windows, `ip addr` on Linux, `ipconfig getifaddr en0` on macOS). `dev:stack` already prints it under "On your phone".
+2. Allow inbound TCP 4000 through the firewall:
+   - **Windows:** `powershell -ExecutionPolicy Bypass -File scripts/allow-lan.ps1` (run as Administrator). Undo with `-Remove`.
+   - **Linux (ufw):** `sudo ufw allow 4000/tcp`
+   - **Linux (firewalld):** `sudo firewall-cmd --add-port=4000/tcp --permanent && sudo firewall-cmd --reload`
+   - **macOS:** usually nothing to do.
+3. On your phone, open `http://<your-lan-ip>:4000`.
+
+HTTP is fine for the maps; camera/geolocation/service-worker features would need HTTPS. Not on the same Wi-Fi? Use a tunnel (e.g. `cloudflared tunnel --url http://localhost:4000`) or deploy it (see below).
 
 ## Delivery (boost-carrier / Uber Direct)
 
@@ -214,15 +228,52 @@ src/
   lib/                     # client api + formatting helpers
 scripts/
   dev-stack.ts             # cross-platform local stack
+  start-prod.ts            # cross-platform production starter
+  allow-lan.ps1            # Windows firewall helper for LAN/phone access
 ```
+
+## From dev:stack to production
+
+`dev:stack` is for local development: it runs the **mock** Uber API, boost-carrier with **test credentials**, and this store with the simulated payment flow. To go live:
+
+**1. Delivery (real Uber Direct).** Deploy boost-carrier with your approved Uber credentials and point it at production:
+- `UBER_API_BASE_URL=https://api.uber.com` (only once Uber approves your app)
+- real `UBER_CLIENT_ID`, `UBER_CLIENT_SECRET`, `UBER_CUSTOMER_ID`
+- `UBER_WEBHOOK_SIGNING_KEY` from the webhook you create in the Uber Direct dashboard
+- `DELIVERY_WEBHOOK_FORWARD_URL=https://<your-store>/api/delivery/webhook`
+
+Then point the store at it (Admin → Delivery, or `.env`): `DELIVERY_PROVIDER=boost-carrier`, `BOOST_CARRIER_URL=https://<your-carrier>`, `BOOST_CARRIER_CUSTOMER_ID=<id>`, and `DELIVERY_WEBHOOK_SECRET=<same signing key>`.
+
+**2. Payments (real M-PESA).** In `.env` (or Admin → Payments): `MPESA_ENABLED=true`, `MPESA_ENV=production`, and the Daraja `MPESA_CONSUMER_KEY` / `MPESA_CONSUMER_SECRET` / `MPESA_SHORTCODE` / `MPESA_PASSKEY`. Set `APP_BASE_URL` to your public HTTPS origin so M-PESA callbacks reach `/api/payments/mpesa/callback`. Turn the `mock` gateway off for real orders.
+
+**3. Run it.** From the project root:
+
+```sh
+bun install
+bun run start        # production mode, binds 0.0.0.0:$PORT
+```
+
+In production mode Bun disables HMR and caches/minifies the frontend bundle in memory. Put it behind a reverse proxy that terminates TLS (Caddy, nginx, or a PaaS) so `https://your-store` → `http://127.0.0.1:4000`, and keep it alive with a process manager (systemd, pm2, Docker).
+
+> Do **not** run `bunx serve dist`. `bun run build` produces a **static frontend only** (no API), so serving that folder gives you a store that can't reach its own backend. The app *is* the Bun server — that's what you run.
+
+**4. Data.** The SQLite database lives in `BOOST_STORE_DATA_DIR` (default `./data`). Mount it on a volume and back it up; it holds stores, products, orders and payments.
+
+**5. Go-live checklist.**
+- Change the demo admin credentials (`DEMO_MERCHANT_EMAIL` / `DEMO_MERCHANT_PASSWORD`) and keep secrets out of git.
+- HTTPS everywhere; `/api/delivery/webhook` reachable by boost-carrier.
+- Real Uber webhook created and subscribed to delivery-status + courier-update events.
+- M-PESA callback reachable and verified with a real STK push.
+- Restrict the admin surface (auth is session-based; harden as needed).
 
 ## Scripts
 
 | Script | Command | What it does |
 | --- | --- | --- |
 | dev | `bun dev` | hot-reload dev server |
-| start | `bun start` | production server |
-| build | `bun run build` | build static assets |
-| dev:stack | `bun run dev:stack` | mock + boost-carrier + store |
+| start | `bun run start` | production server (cross-platform) |
+| build | `bun run build` | static frontend export to `dist/` (no API) |
+| dev:stack | `bun run dev:stack` | mock Uber + boost-carrier + store |
 | db:reset | `bun run db:reset` | delete + reseed the SQLite database |
 | test | `bun test` | run tests |
+| allow-lan | `scripts/allow-lan.ps1` | Windows firewall rule so your phone can reach `:4000` |

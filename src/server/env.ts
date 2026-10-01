@@ -44,6 +44,10 @@ export const env = {
   // key-less services; swap in your own provider via these env vars.
   geocoderUrl: (process.env.GEOCODER_URL || "https://photon.komoot.io/api/").replace(/\/+$/, ""),
   geocoderUserAgent: process.env.GEOCODER_USER_AGENT || "boost-store/1.0",
+  // Restrict address search to a country (ISO 3166-1 alpha-2) and optional
+  // bbox (minLon,minLat,maxLon,maxLat). Defaults to Kenya.
+  geocoderCountry: (process.env.GEOCODER_COUNTRY || "KE").toUpperCase(),
+  geocoderBbox: process.env.GEOCODER_BBOX || "33.89,-4.68,41.86,5.03",
   routerUrl: (process.env.ROUTER_URL || "https://router.project-osrm.org").replace(/\/+$/, ""),
   routerProfile: process.env.ROUTER_PROFILE || "driving",
 
@@ -51,6 +55,9 @@ export const env = {
   mapTileUrl: process.env.MAP_TILE_URL || "https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
   mapTileAttribution: process.env.MAP_TILE_ATTRIBUTION || '&copy; OpenStreetMap contributors &copy; CARTO',
   mapMaxZoom: Number(process.env.MAP_MAX_ZOOM || 20),
+  mapDefaultLat: Number(process.env.MAP_DEFAULT_LAT ?? "-1.2864"),
+  mapDefaultLng: Number(process.env.MAP_DEFAULT_LNG ?? "36.8172"),
+  mapDefaultZoom: Number(process.env.MAP_DEFAULT_ZOOM ?? 12),
   // CARTO Basemaps API key (removes the "API key required" watermark).
   cartoApiKey: process.env.CARTO_API_KEY || "",
 };

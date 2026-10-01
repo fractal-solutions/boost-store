@@ -240,6 +240,16 @@ export async function listOrders(storeId: string, status?: string): Promise<Orde
   return rows as OrderRow[];
 }
 
+/** A customer's own orders, matched by the email used at checkout (any device). */
+export async function listOrdersByEmail(storeId: string, email: string): Promise<OrderRow[]> {
+  const rows = await db`
+    SELECT o.* FROM orders o
+    JOIN customers c ON c.id = o.customer_id
+    WHERE o.store_id = ${storeId} AND lower(c.email) = ${email}
+    ORDER BY o.created_at DESC LIMIT 50`;
+  return rows as OrderRow[];
+}
+
 export async function hydrateOrder(order: OrderRow): Promise<Record<string, unknown>> {
   const items = (await db`SELECT * FROM order_items WHERE order_id = ${order.id}`) as OrderItemRow[];
   const events = (await db`SELECT * FROM order_events WHERE order_id = ${order.id} ORDER BY created_at ASC`) as OrderEventRow[];

@@ -52,6 +52,16 @@ function saveOrderId(id: string): void {
   localStorage.setItem(SAVED_ORDERS_KEY, JSON.stringify([...ids]));
 }
 
+const CUSTOMER_EMAIL_KEY = "boost-store-email";
+
+function readCustomerEmail(): string {
+  return localStorage.getItem(CUSTOMER_EMAIL_KEY) ?? "";
+}
+
+function saveCustomerEmail(email: string): void {
+  if (email) localStorage.setItem(CUSTOMER_EMAIL_KEY, email);
+}
+
 export function Storefront({ store, onAdmin }: { store: StoreSummary; onAdmin?: () => void }) {
   const [products, setProducts] = useState<Product[]>([]);
   const [mashup, setMashup] = useState<Mashup | null>(null);
@@ -262,6 +272,10 @@ export function Storefront({ store, onAdmin }: { store: StoreSummary; onAdmin?: 
         )}
       </main>
 
+      <footer className="mx-auto max-w-3xl px-4 pb-6 pt-8 text-center text-[11px] text-muted-foreground/70">
+        {store.name} · Powered by Boost delivery · Maps © OpenStreetMap contributors, © CARTO
+      </footer>
+
       {/* Bottom navigation (mobile) */}
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border/60 bg-background/95 backdrop-blur-xl sm:hidden">
         <div className="mx-auto flex max-w-3xl items-stretch">
@@ -294,7 +308,7 @@ export function Storefront({ store, onAdmin }: { store: StoreSummary; onAdmin?: 
           store={store}
           defaultTiming={store.settings.paymentTiming}
           onClose={() => setCheckoutOpen(false)}
-          onPlaced={(placed) => { setCheckoutOpen(false); setCart([]); saveOrderId(placed.id); setOrder(placed); }}
+          onPlaced={(placed) => { setCheckoutOpen(false); setCart([]); saveOrderId(placed.id); saveCustomerEmail(placed.customer?.email ?? ""); setOrder(placed); }}
         />
       )}
     </div>
@@ -487,15 +501,52 @@ function CartSheet({ cart, currency, onClose, onUpdate, onCheckout }: { cart: Ca
 }
 
 function OrdersView({ onTrack, onShop }: { onTrack: (id: string) => void; onShop: () => void }) {
+  const [email, setEmail] = useState(readCustomerEmail());
+  const [draft, setDraft] = useState(readCustomerEmail());
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    const ids = readSavedOrders();
-    Promise.all(ids.map((id) => api.get<Order>(`/api/orders/${id}`).catch(() => null)))
-      .then((list) => setOrders(list.filter((o): o is Order => o !== null).reverse()))
-      .finally(() => setLoading(false));
-  }, []);
+    let cancelled = false;
+    void (async () => {
+      setLoading(true);
+      setError("");
+      try {
+        let list: Order[] = [];
+        if (email) {
+          list = await api.get<Order[]>(`/api/orders?email=${encodeURIComponent(email)}`);
+        } else {
+          const ids = readSavedOrders();
+          const fetched = await Promise.all(ids.map((id) => api.get<Order>(`/api/orders/${id}`).catch(() => null)));
+          list = fetched.filter((o): o is Order => o !== null).reverse();
+        }
+        if (!cancelled) setOrders(list);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Could not load your orders.");
+          setOrders([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [email]);
+
+  const lookup = () => {
+    const next = draft.trim().toLowerCase();
+    if (!next) return;
+    saveCustomerEmail(next);
+    setEmail(next);
+  };
+  const clearEmail = () => {
+    localStorage.removeItem(CUSTOMER_EMAIL_KEY);
+    setEmail("");
+    setDraft("");
+  };
 
   if (loading) {
     return (
@@ -507,6 +558,29 @@ function OrdersView({ onTrack, onShop }: { onTrack: (id: string) => void; onShop
     );
   }
 
+  if (orders.length === 0 && !email) {
+    return (
+      <div className="mx-auto mt-12 max-w-sm px-2 text-center">
+        <span className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-muted">
+          <Package className="h-7 w-7 text-muted-foreground" />
+        </span>
+        <p className="mt-3 font-display text-lg font-bold">Find your orders</p>
+        <p className="mt-1 text-sm text-muted-foreground">Enter the email you used at checkout to see your orders on any device.</p>
+        <input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => event.key === "Enter" && lookup()}
+          placeholder="you@example.com"
+          type="email"
+          className="mt-4 w-full rounded-xl border border-border/70 bg-background px-3.5 py-3 text-sm outline-none focus:ring-2 focus:ring-amber-500/30"
+        />
+        {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+        <button onClick={lookup} className="mt-3 w-full rounded-xl bg-amber-700 py-3 text-sm font-semibold text-white transition hover:bg-amber-800">Find my orders</button>
+        <button onClick={onShop} className="mt-2 w-full rounded-xl border border-border/70 py-3 text-sm font-semibold transition hover:bg-muted">Start shopping</button>
+      </div>
+    );
+  }
+
   if (orders.length === 0) {
     return (
       <div className="mt-16 flex flex-col items-center gap-3 px-6 text-center">
@@ -514,8 +588,9 @@ function OrdersView({ onTrack, onShop }: { onTrack: (id: string) => void; onShop
           <Package className="h-7 w-7 text-muted-foreground" />
         </span>
         <p className="font-display text-lg font-bold">No orders yet</p>
-        <p className="max-w-xs text-sm text-muted-foreground">When you place an order it shows up here so you can track it live.</p>
-        <button onClick={onShop} className="mt-1 rounded-full bg-amber-700 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-800">Start shopping</button>
+        <p className="max-w-xs text-sm text-muted-foreground">Nothing found for {email}. Place an order and it will show up here on any device.</p>
+        <button onClick={clearEmail} className="mt-1 text-xs font-semibold text-amber-800 hover:underline">Use a different email</button>
+        <button onClick={onShop} className="rounded-full bg-amber-700 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-800">Start shopping</button>
       </div>
     );
   }
@@ -525,6 +600,11 @@ function OrdersView({ onTrack, onShop }: { onTrack: (id: string) => void; onShop
 
   return (
     <section className="mt-4 space-y-7">
+      <div className="flex items-center justify-between gap-3">
+        <p className="min-w-0 truncate text-xs text-muted-foreground">{email || "This device"}</p>
+        <button onClick={clearEmail} className="shrink-0 text-xs font-medium text-amber-800 hover:underline">Change email</button>
+      </div>
+
       {active.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center gap-2">

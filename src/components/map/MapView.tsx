@@ -30,14 +30,28 @@ function toLatLng([lng, lat]: LatLng): L.LatLngTuple {
   return [lat, lng];
 }
 
+/** Glide a marker from one position to another so status changes feel live. */
+function tweenMarker(marker: L.Marker, from: L.LatLngTuple, to: L.LatLngTuple, durationMs = 1400): void {
+  const start = performance.now();
+  const step = (now: number) => {
+    if (!marker.getElement()) return; // marker was removed by a newer render
+    const t = Math.min(1, (now - start) / durationMs);
+    const eased = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+    marker.setLatLng([from[0] + (to[0] - from[0]) * eased, from[1] + (to[1] - from[1]) * eased]);
+    if (t < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
 export function MapView({
   pickup,
   dropoff,
   courier,
   route,
+  traveled,
   courierPath,
   center,
-  zoom = 14,
+  zoom,
   interactive = true,
   follow = false,
   onPick,
@@ -47,6 +61,7 @@ export function MapView({
   dropoff?: Coords | null;
   courier?: Coords | null;
   route?: LatLng[] | null;
+  traveled?: LatLng[] | null;
   courierPath?: LatLng[] | null;
   center?: Coords | null;
   zoom?: number;
@@ -59,15 +74,16 @@ export function MapView({
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.LayerGroup | null>(null);
   const pickRef = useRef(onPick);
+  const lastCourierRef = useRef<L.LatLngTuple | null>(null);
   pickRef.current = onPick;
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
     const map = L.map(containerRef.current, {
       zoomControl: interactive,
-      attributionControl: true,
-      center: center ? [center.latitude, center.longitude] : [0, 0],
-      zoom,
+      attributionControl: false,
+      center: center ? [center.latitude, center.longitude] : [-1.2864, 36.8172],
+      zoom: zoom ?? 12,
       dragging: interactive,
       scrollWheelZoom: interactive,
       doubleClickZoom: interactive,
@@ -80,10 +96,8 @@ export function MapView({
 
     void loadMapConfig().then((config) => {
       if (mapRef.current !== map) return; // unmounted before tiles resolved
-      L.tileLayer(config.tileUrl, {
-        attribution: config.attribution,
-        maxZoom: config.maxZoom,
-      }).addTo(map);
+      L.tileLayer(config.tileUrl, { attribution: config.attribution, maxZoom: config.maxZoom }).addTo(map);
+      if (!center) map.setView([config.center.latitude, config.center.longitude], config.zoom);
     });
 
     map.on("click", (event: L.LeafletMouseEvent) => {
@@ -119,30 +133,42 @@ export function MapView({
     if (route && route.length > 1) {
       const points = route.map(toLatLng);
       points.forEach((point) => bounds.extend(point));
-      L.polyline(points, { color: "#b45309", weight: 5, opacity: 0.85, lineCap: "round", lineJoin: "round" }).addTo(layer);
-      L.polyline(points, { color: "#ffffff", weight: 1.5, opacity: 0.6 }).addTo(layer);
+      // Planned route (muted), then the travelled segment (accent).
+      L.polyline(points, { color: "#cbd5e1", weight: 6, opacity: 0.9, lineCap: "round", lineJoin: "round" }).addTo(layer);
+    }
+
+    if (traveled && traveled.length > 1) {
+      const points = traveled.map(toLatLng);
+      L.polyline(points, { color: "#b45309", weight: 5, opacity: 0.95, lineCap: "round", lineJoin: "round" }).addTo(layer);
     }
 
     if (courierPath && courierPath.length > 1) {
       const points = courierPath.map(toLatLng);
       points.forEach((point) => bounds.extend(point));
-      L.polyline(points, { color: "#64748b", weight: 4, opacity: 0.9, lineCap: "round", dashArray: "1 8" }).addTo(layer);
+      L.polyline(points, { color: "#64748b", weight: 3, opacity: 0.8, lineCap: "round", dashArray: "1 8" }).addTo(layer);
     }
 
     const pickupLatLng = extend(pickup);
     const dropoffLatLng = extend(dropoff);
-    const courierLatLng = extend(courier);
 
     if (pickupLatLng) L.marker(pickupLatLng, { icon: pinIcon("pickup"), title: "Pickup" }).addTo(layer);
     if (dropoffLatLng) L.marker(dropoffLatLng, { icon: pinIcon("dropoff"), title: "Drop-off" }).addTo(layer);
-    if (courierLatLng) L.marker(courierLatLng, { icon: pinIcon("courier"), title: "Courier" }).addTo(layer);
+
+    if (courier) {
+      const target: L.LatLngTuple = [courier.latitude, courier.longitude];
+      bounds.extend(target);
+      const from = lastCourierRef.current ?? target;
+      const marker = L.marker(from, { icon: pinIcon("courier"), title: "Courier", zIndexOffset: 1000 }).addTo(layer);
+      if (from[0] !== target[0] || from[1] !== target[1]) tweenMarker(marker, from, target);
+      lastCourierRef.current = target;
+    }
 
     if (follow && courier) {
-      map.setView([courier.latitude, courier.longitude], Math.max(map.getZoom(), 15), { animate: true });
+      map.setView([courier.latitude, courier.longitude], Math.max(map.getZoom(), 14), { animate: true });
     } else if (bounds.isValid()) {
       map.fitBounds(bounds, { padding: [48, 48], maxZoom: 16, animate: false });
     }
-  }, [pickup, dropoff, courier, route, courierPath, follow]);
+  }, [pickup, dropoff, courier, route, traveled, courierPath, follow]);
 
   return <div ref={containerRef} className={cn("z-0 h-full w-full", className)} />;
 }

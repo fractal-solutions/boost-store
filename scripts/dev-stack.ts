@@ -17,6 +17,7 @@
  */
 
 import path from "node:path";
+import os from "node:os";
 
 const storeDir = path.resolve(import.meta.dir, "..");
 const devDir = path.dirname(storeDir);
@@ -81,8 +82,18 @@ function prefixStream(stream: ReadableStream<Uint8Array> | undefined | null, lab
   })().catch(() => {});
 }
 
-async function isUp(url: string): Promise<boolean> {
-  try {
+/** Non-internal IPv4 addresses, so you can reach the store from your phone. */
+function lanUrls(port: number): string[] {
+  const urls: string[] = [];
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const net of list ?? []) {
+      if (net.family === "IPv4" && !net.internal) urls.push(`http://${net.address}:${port}`);
+    }
+  }
+  return urls;
+}
+
+async function isUp(url: string): Promise<boolean> {  try {
     const response = await fetch(url, { signal: AbortSignal.timeout(1500) });
     return response.ok;
   } catch {
@@ -150,6 +161,9 @@ async function main(): Promise<void> {
       PORT: String(MOCK_PORT),
       WEBHOOK_URL: `http://localhost:${CARRIER_PORT}/webhook/uber`,
       UBER_WEBHOOK_SIGNING_KEY: WEBHOOK_KEY,
+      // Realistic KES delivery pricing.
+      MIN_FEE: "120",
+      MAX_FEE: "450",
     });
     await waitFor(`http://localhost:${MOCK_PORT}/`, "mock API");
   }
@@ -180,23 +194,30 @@ async function main(): Promise<void> {
     console.log(`starting ${dim("boost-store")} on :${STORE_PORT}`);
     start("store", green, ["bun", "src/index.ts"], storeDir, {
       PORT: String(STORE_PORT),
+      HOST: "0.0.0.0",
       DELIVERY_PROVIDER: "boost-carrier",
       BOOST_CARRIER_URL: `http://localhost:${CARRIER_PORT}`,
       DELIVERY_WEBHOOK_SECRET: WEBHOOK_KEY,
-      // Align the demo map with the mock's fixed courier location (San Francisco).
-      DEMO_PICKUP_LAT: "37.7749",
-      DEMO_PICKUP_LNG: "-122.4194",
-      DEMO_DROPOFF_LAT: "37.7849",
-      DEMO_DROPOFF_LNG: "-122.4094",
+      // Kenya demo route (Nairobi pickup -> nearby drop-off).
+      DEMO_PICKUP_LAT: "-1.2864",
+      DEMO_PICKUP_LNG: "36.8172",
+      DEMO_DROPOFF_LAT: "-1.2921",
+      DEMO_DROPOFF_LNG: "36.8219",
     });
     await waitFor(`http://localhost:${STORE_PORT}/api/health`, "boost-store");
   }
 
+  const lans = lanUrls(STORE_PORT);
   console.log(`
 ${green("Stack ready")}
   store    ${cyan(`http://localhost:${STORE_PORT}`)}   ${dim("admin: demo@booststore.app / booststore")}
   carrier  http://localhost:${CARRIER_PORT}
   mock     http://localhost:${MOCK_PORT}
+${
+  lans.length
+    ? `\n  On your phone (same Wi-Fi):\n    ${lans.join("\n    ")}\n    ${dim(`if it won't load, allow inbound TCP ${STORE_PORT}: powershell -ExecutionPolicy Bypass -File scripts/allow-lan.ps1`)}`
+    : ""
+}
 
 Press ${dim("Ctrl+C")} to stop everything.
 `);

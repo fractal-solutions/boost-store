@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun --hot src/index.ts",
-    "start": "NODE_ENV=production bun src/index.ts",
+    "start": "bun run scripts/start-prod.ts",
     "build": "bun run build.ts",
     "dev:stack": "bun run scripts/dev-stack.ts",
     "db:reset": "bun run src/server/reset.ts",

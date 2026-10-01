@@ -53,7 +53,7 @@ export function Checkout({
 }) {
   const [step, setStep] = useState(0);
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(() => (typeof localStorage === "undefined" ? "" : localStorage.getItem("boost-store-email") ?? ""));
   const [phone, setPhone] = useState("");
   const [errors, setErrors] = useState<Errors>({});
   const [place, setPlace] = useState<Place | null>(null);

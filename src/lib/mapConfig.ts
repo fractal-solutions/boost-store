@@ -1,6 +1,6 @@
 import { api, type Coords } from "./api";
 
-export type MapConfig = { tileUrl: string; attribution: string; maxZoom: number; routing: boolean };
+export type MapConfig = { tileUrl: string; attribution: string; maxZoom: number; center: { latitude: number; longitude: number }; zoom: number; routing: boolean };
 
 export type Place = {
   label: string;
@@ -21,9 +21,11 @@ export type RouteResult = {
 };
 
 const DEFAULT_CONFIG: MapConfig = {
-  tileUrl: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+  tileUrl: "https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
   attribution: "© OpenStreetMap contributors © CARTO",
   maxZoom: 20,
+  center: { latitude: -1.2864, longitude: 36.8172 },
+  zoom: 12,
   routing: true,
 };
 

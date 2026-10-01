@@ -50,13 +50,16 @@ export async function searchPlaces(query: string, limit = 6): Promise<Place[]> {
   const url = new URL(env.geocoderUrl);
   url.searchParams.set("q", query);
   url.searchParams.set("limit", String(limit));
+  if (env.geocoderBbox) url.searchParams.set("bbox", env.geocoderBbox);
   const response = await fetch(url, {
     headers: { "User-Agent": env.geocoderUserAgent, Accept: "application/json" },
     signal: AbortSignal.timeout(8000),
   }).catch(() => null);
   if (!response || !response.ok) return [];
   const body = (await response.json().catch(() => null)) as { features?: PhotonFeature[] } | null;
-  return (body?.features ?? []).map(toPlace).filter((place): place is Place => place !== null);
+  const places = (body?.features ?? []).map(toPlace).filter((place): place is Place => place !== null);
+  // Keep results inside the configured country; drop clearly-elsewhere matches.
+  return env.geocoderCountry ? places.filter((place) => !place.countryCode || place.countryCode === env.geocoderCountry) : places;
 }
 
 export async function reverseGeocode(latitude: number, longitude: number): Promise<Place | null> {
@@ -124,6 +127,8 @@ export function mapConfig() {
     tileUrl,
     attribution: env.mapTileAttribution,
     maxZoom: env.mapMaxZoom,
+    center: { latitude: env.mapDefaultLat, longitude: env.mapDefaultLng },
+    zoom: env.mapDefaultZoom,
     routing: true,
   };
 }

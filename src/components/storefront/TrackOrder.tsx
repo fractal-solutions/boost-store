@@ -21,8 +21,9 @@ import {
 } from "lucide-react";
 import { MapView } from "../map/MapView";
 import { ProductImage } from "../ui/ProductImage";
-import { api, type DeliveryAddress, type Order } from "@/lib/api";
+import { api, type Coords, type DeliveryAddress, type Order } from "@/lib/api";
 import { fetchRoute, formatDistance, formatDuration, type RouteResult } from "@/lib/mapConfig";
+import { distanceToGeometry, pointAtFraction, projectFraction, sliceAtFraction, statusFraction } from "@/lib/route";
 import { formatDateTime, formatMoney, ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS, statusTone, timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -69,10 +70,26 @@ export function TrackOrder({ orderId, onBack, onShop }: { orderId: string; onBac
     void fetchRoute(pickup, dropoff).then(setRoute);
   }, [route, pickup, dropoff]);
 
-  const courierPath = useMemo(
-    () => (order?.delivery.path ?? []).map((ping) => [ping.longitude, ping.latitude] as [number, number]),
-    [order],
-  );
+  const routeGeom = route?.geometry ?? null;
+
+  // Place the courier: use the provider's real location when it is near the
+  // route, otherwise derive its position from the route + delivery status so
+  // the map still animates realistically (the local mock reports a fixed,
+  // out-of-area courier).
+  const { courierPos, traveled, fraction } = useMemo(() => {
+    const real = order?.delivery.courier ?? null;
+    if (!order) return { courierPos: null as Coords | null, traveled: [] as [number, number][], fraction: 0 };
+    if (!routeGeom) return { courierPos: real, traveled: [] as [number, number][], fraction: 0 };
+    const nearRoute = real ? distanceToGeometry(real, routeGeom) < 3000 : false;
+    const frac = nearRoute && real ? projectFraction(real, routeGeom) : statusFraction(order.status);
+    const point = nearRoute && real ? { latitude: real.latitude, longitude: real.longitude } : (() => {
+      const p = pointAtFraction(routeGeom, frac);
+      return p ? { latitude: p[1], longitude: p[0] } : null;
+    })();
+    const done = order.status === "delivered" || order.status === "completed";
+    const travelled = done ? routeGeom : sliceAtFraction(routeGeom, frac);
+    return { courierPos: point, traveled: travelled, fraction: frac };
+  }, [order, routeGeom]);
 
   const action = async (fn: () => Promise<unknown>) => {
     setBusy(true);
@@ -137,9 +154,9 @@ export function TrackOrder({ orderId, onBack, onShop }: { orderId: string; onBac
           className="h-64 sm:h-80"
           pickup={pickup}
           dropoff={dropoff}
-          courier={order.delivery.courier}
-          route={route?.geometry}
-          courierPath={courierPath}
+          courier={courierPos}
+          route={routeGeom}
+          traveled={traveled}
           follow={order.status === "out_for_delivery" || order.status === "in_transit"}
         />
         <div className="pointer-events-none absolute inset-x-3 top-3 flex items-start justify-between gap-2">
@@ -168,6 +185,11 @@ export function TrackOrder({ orderId, onBack, onShop }: { orderId: string; onBac
         <div className="mb-4 flex items-center gap-2">
           <Route className="h-4 w-4 text-amber-700" />
           <p className="font-display text-sm font-semibold">Pickup & drop-off</p>
+          {route && (
+            <span className="ml-auto text-xs font-medium text-muted-foreground">
+              {formatDistance(route.distanceMeters)} · {formatDuration(route.durationSeconds)}
+            </span>
+          )}
         </div>
         <div className="relative space-y-6">
           <span className="absolute left-[13px] top-8 bottom-8 w-px border-l border-dashed border-border" aria-hidden />
@@ -196,8 +218,8 @@ export function TrackOrder({ orderId, onBack, onShop }: { orderId: string; onBac
           <div className="h-full rounded-full bg-amber-600 transition-all" style={{ width: `${order.delivery.progressPercent}%` }} />
         </div>
         <div className="mt-2 flex justify-between text-xs text-muted-foreground">
-          <span>{route ? formatDistance(route.distanceMeters) : "—"} trip</span>
-          <span>{route ? formatDuration(route.durationSeconds) : "—"} drive</span>
+          <span>{route ? `${formatDistance(route.distanceMeters * (1 - fraction))} left` : "—"}</span>
+          <span>{route ? formatDistance(route.distanceMeters) : "—"} total</span>
           <span>{isCompleted ? "Complete" : order.delivery.etaMinutes > 0 ? `ETA ${order.delivery.etaMinutes} min` : "Arriving"}</span>
         </div>
       </div>
