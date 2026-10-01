@@ -159,7 +159,9 @@ The admin panel (dashboard, orders, products, CRM, payments, delivery, settings)
 - **operating hours** — always-open, or specific days with open/close times (orders from a closed warehouse are rejected);
 - an active flag.
 
-Products belong to a warehouse and have a per-warehouse **stock level** and **reorder point**. The Inventory view is mobile-first (cards on phones, a table on larger screens) and shows SKUs, on-hand and in-transit units plus **low-stock** warnings. Warehouse, quantity and reorder level are edited in each item's modal, and destructive actions (e.g. deleting a warehouse) raise a confirmation dialog first.
+Products belong to a warehouse and have a per-warehouse **stock level** and **reorder point**. The Inventory view is mobile-first (cards on phones, a table on larger screens) and shows summary tiles (SKUs, on-hand, in-transit, low-stock and **total stock value**) plus a **value per warehouse** on each warehouse card. Warehouse, quantity and reorder level are edited in each item's modal, and destructive actions (e.g. deleting a warehouse) raise a confirmation dialog first.
+
+The whole admin panel is responsive — the Dashboard stat tiles, the Orders list (cards on phones, table on desktop) and the tracking detail all adapt to small screens.
 
 **Stock lifecycle** — placing an order **reserves** stock (on-hand → reserved); when the delivery is dispatched it becomes **in transit**; it is only fully deducted from the system once the order is **completed**. Cancelling an order returns stock to on-hand. Buckets are tracked per product in `inventory` (`quantity`, `reserved`, `in_transit`) with a `stock_movements` log.
 

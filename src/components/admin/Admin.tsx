@@ -78,7 +78,7 @@ export function Admin({ account, onExit, onSignOut }: { account: Account; onExit
 
         {tab === "dashboard" && stats && (
           <div className="space-y-6">
-            <div className="grid gap-4 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Stat label="Orders" value={String(stats.orders)} />
               <Stat label="Revenue" value={formatMoney(stats.revenue, stats.currency)} />
               <Stat label="Customers" value={String(stats.customers)} />
@@ -147,7 +147,7 @@ function CrmPanel({ currency }: { currency: string }) {
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Customers" value={String(customers.length)} />
         <Stat label="New this month" value={String(newThisMonth)} />
         <Stat label="With orders" value={String(withOrders)} />
@@ -247,17 +247,24 @@ function InventoryPanel({ currency }: { currency: string }) {
     });
 
   const units = inventory.reduce((sum, item) => sum + item.quantity, 0);
+  const value = inventory.reduce((sum, item) => sum + item.value, 0);
   const low = inventory.filter((item) => item.low).length;
   const inTransit = inventory.reduce((sum, item) => sum + item.inTransit, 0);
+  const warehouseValue = inventory.reduce((map, item) => {
+    const key = item.warehouseId || "";
+    map.set(key, (map.get(key) ?? 0) + item.value);
+    return map;
+  }, new Map<string, number>());
   const filtered = inventory.filter((item) => `${item.name} ${item.category} ${item.sku}`.toLowerCase().includes(query.toLowerCase()));
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <Stat label="SKUs" value={String(inventory.length)} />
         <Stat label="On hand" value={String(units)} />
         <Stat label="In transit" value={String(inTransit)} />
         <Stat label="Low stock" value={String(low)} />
+        <Stat label="Stock value" value={formatMoney(value, currency)} />
       </div>
 
       <div className="rounded-xl border bg-background p-4">
@@ -281,6 +288,7 @@ function InventoryPanel({ currency }: { currency: string }) {
                 <p className="mt-1 text-xs text-muted-foreground">{[w.streetAddress, w.city, w.country].filter(Boolean).join(", ") || "No address"}</p>
                 <p className="mt-1 text-xs text-muted-foreground">{w.contactName || w.phone || w.email ? [w.contactName, w.phone, w.email].filter(Boolean).join(" · ") : "No contact"}</p>
                 <p className="mt-1 text-xs text-muted-foreground">Hours: {w.hours.alwaysOpen ? "Always open" : `${w.hours.days.join(", ") || "no days"} · ${w.hours.open}–${w.hours.close}`}</p>
+                <p className="mt-1 text-xs font-medium">Warehouse value: {formatMoney(warehouseValue.get(w.id) ?? 0, currency)}</p>
                 <div className="mt-2 flex gap-3 text-xs">
                   <button onClick={() => setEditingWarehouse(w)} className="text-amber-700 hover:underline">Edit</button>
                   <button onClick={() => askDeleteWarehouse(w)} className="text-red-600 hover:underline">Delete</button>
@@ -661,32 +669,55 @@ function Stat({ label, value }: { label: string; value: string }) {
 function OrderTable({ orders, currency, onOpen }: { orders: Order[]; currency: string; onOpen: (id: string) => void }) {
   if (orders.length === 0) return <p className="text-sm text-muted-foreground">No orders yet.</p>;
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead className="text-left text-muted-foreground">
-          <tr>
-            <th className="py-2">Order</th>
-            <th>Customer</th>
-            <th>Total</th>
-            <th>Status</th>
-            <th>Payment</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {orders.map((order) => (
-            <tr key={order.id} className="border-t">
-              <td className="py-2 font-mono text-xs">{order.id}</td>
-              <td>{order.customer?.name ?? "—"}</td>
-              <td>{formatMoney(order.total, currency)}</td>
-              <td><span className={cn("rounded-full px-2 py-0.5 text-xs", statusTone(order.status))}>{ORDER_STATUS_LABELS[order.status] ?? order.status}</span></td>
-              <td><span className={cn("rounded-full px-2 py-0.5 text-xs", statusTone(order.paymentStatus))}>{PAYMENT_STATUS_LABELS[order.paymentStatus] ?? order.paymentStatus}</span></td>
-              <td className="text-right"><button onClick={() => onOpen(order.id)} className="rounded-lg border px-2 py-1 text-xs hover:bg-muted">Open</button></td>
+    <>
+      {/* Mobile cards */}
+      <div className="space-y-2 sm:hidden">
+        {orders.map((order) => (
+          <button key={order.id} onClick={() => onOpen(order.id)} className="block w-full squircle border p-3 text-left">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono text-xs text-muted-foreground">#{order.id.slice(-8)}</span>
+              <span className={cn("rounded-full px-2 py-0.5 text-[11px]", statusTone(order.status))}>{ORDER_STATUS_LABELS[order.status] ?? order.status}</span>
+            </div>
+            <div className="mt-1.5 flex items-center justify-between">
+              <span className="text-sm">{order.customer?.name ?? "—"}</span>
+              <span className="font-semibold">{formatMoney(order.total, currency)}</span>
+            </div>
+            <div className="mt-1 flex items-center justify-between">
+              <span className={cn("rounded-full px-2 py-0.5 text-[11px]", statusTone(order.paymentStatus))}>{PAYMENT_STATUS_LABELS[order.paymentStatus] ?? order.paymentStatus}</span>
+              <span className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</span>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden overflow-x-auto sm:block">
+        <table className="w-full text-sm">
+          <thead className="text-left text-muted-foreground">
+            <tr>
+              <th className="py-2">Order</th>
+              <th>Customer</th>
+              <th>Total</th>
+              <th>Status</th>
+              <th>Payment</th>
+              <th />
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {orders.map((order) => (
+              <tr key={order.id} className="border-t">
+                <td className="py-2 font-mono text-xs">{order.id}</td>
+                <td>{order.customer?.name ?? "—"}</td>
+                <td>{formatMoney(order.total, currency)}</td>
+                <td><span className={cn("rounded-full px-2 py-0.5 text-xs", statusTone(order.status))}>{ORDER_STATUS_LABELS[order.status] ?? order.status}</span></td>
+                <td><span className={cn("rounded-full px-2 py-0.5 text-xs", statusTone(order.paymentStatus))}>{PAYMENT_STATUS_LABELS[order.paymentStatus] ?? order.paymentStatus}</span></td>
+                <td className="text-right"><button onClick={() => onOpen(order.id)} className="rounded-lg border px-2 py-1 text-xs hover:bg-muted">Open</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
