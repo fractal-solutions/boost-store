@@ -1,6 +1,7 @@
 import { db } from "./db";
 import type { StoreSettings } from "./defaults";
 import { getDeliveryProvider, mapUberStatus, type DeliveryAddress, type QuoteResult } from "./delivery";
+import { defaultWarehouseRow, isOpenNow, parseHours, type WarehouseRow } from "./warehouses";
 import {
   ApiError,
   badRequest,
@@ -35,6 +36,8 @@ export type OrderRow = {
   progress_percent: number;
   pickup_address: string;
   dropoff_address: string;
+  pickup_warehouse_id: string;
+  pickup_stops: number;
   pickup_latitude: number | null;
   pickup_longitude: number | null;
   dropoff_latitude: number | null;
@@ -142,6 +145,7 @@ export async function createOrder(
   const orderId = newId("ord");
   let customerId = "";
   let subtotal = 0;
+  const defaultWarehouse = await defaultWarehouseRow(store.id);
 
   await db.begin(async (tx) => {
     const existing = await tx`SELECT id FROM customers WHERE store_id = ${store.id} AND email = ${email} LIMIT 1`;
@@ -162,18 +166,41 @@ export async function createOrder(
     }
 
     const lines: { id: string; product_id: string; name: string; price: number; quantity: number; image: string; line_total: number }[] = [];
+    const warehouseQty = new Map<string, number>();
     for (const raw of itemsInput) {
       const productId = str(raw.productId);
       const quantity = Math.trunc(Number(raw.quantity));
       if (!productId || !Number.isFinite(quantity) || quantity <= 0) throw badRequest("VALIDATION_ERROR", "Each item needs a product and a positive quantity.");
       const productRows = await tx`SELECT * FROM products WHERE id = ${productId} AND store_id = ${store.id} LIMIT 1`;
-      const product = productRows[0] as { id: string; name: string; price: number; stock: number; image: string } | undefined;
+      const product = productRows[0] as { id: string; name: string; price: number; stock: number; image: string; warehouse_id: string } | undefined;
       if (!product) throw badRequest("VALIDATION_ERROR", `Product ${productId} was not found.`);
       if (product.stock < quantity) throw badRequest("INSUFFICIENT_STOCK", `Only ${product.stock} left of ${product.name}.`);
       const lineTotal = product.price * quantity;
       subtotal += lineTotal;
+      const warehouseId = str(product.warehouse_id) || defaultWarehouse?.id || "";
+      warehouseQty.set(warehouseId, (warehouseQty.get(warehouseId) ?? 0) + quantity);
       lines.push({ id: newId("oi"), product_id: product.id, name: product.name, price: product.price, quantity, image: product.image, line_total: lineTotal });
     }
+
+    // The primary pickup is the warehouse holding the most items; a cart that
+    // spans warehouses needs one pickup per warehouse (multi-stop).
+    let primaryId = defaultWarehouse?.id ?? "";
+    let best = -1;
+    for (const [warehouseId, qty] of warehouseQty) {
+      if (qty > best) {
+        best = qty;
+        primaryId = warehouseId;
+      }
+    }
+    const warehouseRows = primaryId ? ((await tx`SELECT * FROM warehouses WHERE id = ${primaryId} AND store_id = ${store.id} LIMIT 1`) as WarehouseRow[]) : [];
+    const warehouse = warehouseRows[0];
+    if (warehouse && !isOpenNow(parseHours(warehouse.hours))) {
+      throw badRequest("WAREHOUSE_CLOSED", `${warehouse.name} is closed right now — orders from this location aren't being taken.`);
+    }
+    const pickup = warehouse
+      ? { street_address: [str(warehouse.street_address)], city: str(warehouse.city), country: str(warehouse.country), latitude: warehouse.latitude, longitude: warehouse.longitude }
+      : settings.pickup;
+    const pickupStops = warehouseQty.size || 1;
 
     const total = subtotal + fee;
     const paymentStatus = paymentTiming === "cod" ? "cod_pending" : "unpaid";
@@ -191,10 +218,12 @@ export async function createOrder(
       delivery_quote_id: quoteId,
       eta_minutes: etaMinutes,
       progress_percent: STATUS_PROGRESS.pending,
-      pickup_address: JSON.stringify(settings.pickup),
+      pickup_address: JSON.stringify(pickup),
       dropoff_address: JSON.stringify(dropoff),
-      pickup_latitude: settings.pickup.latitude,
-      pickup_longitude: settings.pickup.longitude,
+      pickup_warehouse_id: primaryId,
+      pickup_stops: pickupStops,
+      pickup_latitude: pickup.latitude ?? null,
+      pickup_longitude: pickup.longitude ?? null,
       dropoff_latitude: dropoffLatitude,
       dropoff_longitude: dropoffLongitude,
       payment_status: paymentStatus,
@@ -202,7 +231,10 @@ export async function createOrder(
       updated_at: now,
     })}`;
     for (const line of lines) await tx`INSERT INTO order_items ${tx({ ...line, order_id: orderId })}`;
-    for (const line of lines) await tx`UPDATE products SET stock = stock - ${line.quantity}, updated_at = ${now} WHERE id = ${line.product_id}`;
+    for (const line of lines) {
+      await tx`UPDATE products SET stock = stock - ${line.quantity}, updated_at = ${now} WHERE id = ${line.product_id}`;
+      await tx`UPDATE inventory SET quantity = MAX(0, quantity - ${line.quantity}), updated_at = ${now} WHERE store_id = ${store.id} AND product_id = ${line.product_id}`;
+    }
     await tx`INSERT INTO order_events ${tx({
       id: newId("evt"),
       order_id: orderId,
@@ -211,6 +243,16 @@ export async function createOrder(
       location: "",
       created_at: now,
     })}`;
+    if (pickupStops > 1) {
+      await tx`INSERT INTO order_events ${tx({
+        id: newId("evt"),
+        order_id: orderId,
+        status: "pending",
+        message: `Order spans ${pickupStops} warehouses — the courier will make ${pickupStops} pickups`,
+        location: "",
+        created_at: now,
+      })}`;
+    }
   });
 
   let order = (await getOrderRow(orderId))!;
@@ -284,6 +326,8 @@ export async function hydrateOrder(order: OrderRow): Promise<Record<string, unkn
       progressPercent: Number(order.progress_percent),
       pickup: parseJson<DeliveryAddress>(order.pickup_address, { street_address: [], city: "", country: "" }),
       dropoff: parseJson<DeliveryAddress>(order.dropoff_address, { street_address: [], city: "", country: "" }),
+      pickupWarehouseId: str(order.pickup_warehouse_id),
+      pickupStops: Number(order.pickup_stops ?? 1),
       pickupCoords: order.pickup_latitude != null ? { latitude: Number(order.pickup_latitude), longitude: Number(order.pickup_longitude) } : null,
       dropoffCoords: order.dropoff_latitude != null ? { latitude: Number(order.dropoff_latitude), longitude: Number(order.dropoff_longitude) } : null,
       courier:

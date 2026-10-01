@@ -30,6 +30,9 @@ const migrations = [
   "ALTER TABLE customers ADD COLUMN last_login_at TEXT",
   "ALTER TABLE customers ADD COLUMN birthday TEXT DEFAULT ''",
   "ALTER TABLE customers ADD COLUMN gender TEXT DEFAULT ''",
+  "ALTER TABLE products ADD COLUMN warehouse_id TEXT DEFAULT ''",
+  "ALTER TABLE orders ADD COLUMN pickup_warehouse_id TEXT DEFAULT ''",
+  "ALTER TABLE orders ADD COLUMN pickup_stops INTEGER NOT NULL DEFAULT 1",
 ];
 for (const statement of migrations) {
   try {

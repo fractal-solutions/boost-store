@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { newId, nowIso, parseJson, slugify, str } from "./lib";
+import { setStock } from "./inventory";
 
 export type ProductRow = {
   id: string;
@@ -16,6 +17,7 @@ export type ProductRow = {
   status: string;
   featured: number;
   rating: number;
+  warehouse_id: string;
   created_at: string;
   updated_at: string;
 };
@@ -34,6 +36,7 @@ export type ProductApi = {
   status: string;
   featured: boolean;
   rating: number;
+  warehouseId: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -53,6 +56,7 @@ export function hydrateProduct(row: ProductRow): ProductApi {
     status: row.status,
     featured: Number(row.featured) === 1,
     rating: Number(row.rating),
+    warehouseId: str(row.warehouse_id),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -106,10 +110,14 @@ export async function createProduct(storeId: string, body: Record<string, unknow
     status: str(body.status, "active"),
     featured: body.featured ? 1 : 0,
     rating: Number.isFinite(Number(body.rating)) ? Number(body.rating) : 4.6,
+    warehouse_id: str(body.warehouseId),
     created_at: now,
     updated_at: now,
   };
   await db`INSERT INTO products ${db(row)}`;
+  if (row.warehouse_id) {
+    await setStock(storeId, id, row.warehouse_id, row.stock, Number(body.reorderLevel ?? 0));
+  }
   return hydrateProduct(row);
 }
 
@@ -131,6 +139,7 @@ export async function updateProduct(storeId: string, productId: string, body: Re
   if (typeof body.status === "string") fields.status = body.status;
   if (body.featured !== undefined) fields.featured = body.featured ? 1 : 0;
   if (body.rating !== undefined && Number.isFinite(Number(body.rating))) fields.rating = Number(body.rating);
+  if (typeof body.warehouseId === "string") fields.warehouse_id = body.warehouseId;
   fields.updated_at = nowIso();
   const keys = Object.keys(fields);
   await db`UPDATE products SET ${db(fields, ...keys)} WHERE id = ${productId} AND store_id = ${storeId}`;

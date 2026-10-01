@@ -45,10 +45,43 @@ CREATE TABLE IF NOT EXISTS products (
   status TEXT NOT NULL DEFAULT 'active',
   featured INTEGER NOT NULL DEFAULT 0,
   rating REAL NOT NULL DEFAULT 4.6,
+  warehouse_id TEXT DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_products_store ON products(store_id, status);
+
+CREATE TABLE IF NOT EXISTS warehouses (
+  id TEXT PRIMARY KEY,
+  store_id TEXT NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  code TEXT DEFAULT '',
+  contact_name TEXT DEFAULT '',
+  phone TEXT DEFAULT '',
+  email TEXT DEFAULT '',
+  street_address TEXT DEFAULT '',
+  city TEXT DEFAULT '',
+  country TEXT DEFAULT '',
+  latitude REAL,
+  longitude REAL,
+  hours TEXT NOT NULL DEFAULT '{}',
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_warehouses_store ON warehouses(store_id);
+
+CREATE TABLE IF NOT EXISTS inventory (
+  id TEXT PRIMARY KEY,
+  store_id TEXT NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  warehouse_id TEXT NOT NULL REFERENCES warehouses(id) ON DELETE CASCADE,
+  quantity INTEGER NOT NULL DEFAULT 0,
+  reorder_level INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  UNIQUE (product_id, warehouse_id)
+);
+CREATE INDEX IF NOT EXISTS idx_inventory_store ON inventory(store_id);
 
 CREATE TABLE IF NOT EXISTS customers (
   id TEXT PRIMARY KEY,
@@ -106,6 +139,8 @@ CREATE TABLE IF NOT EXISTS orders (
   progress_percent INTEGER DEFAULT 0,
   pickup_address TEXT DEFAULT '',
   dropoff_address TEXT DEFAULT '',
+  pickup_warehouse_id TEXT DEFAULT '',
+  pickup_stops INTEGER NOT NULL DEFAULT 1,
   pickup_latitude REAL,
   pickup_longitude REAL,
   dropoff_latitude REAL,

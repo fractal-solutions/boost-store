@@ -60,6 +60,8 @@ import {
   verifySignup,
 } from "./customers";
 import { accountFromCustomer, getAccount, loginAccount, logoutAccount } from "./account";
+import { createWarehouse, deleteWarehouse, listWarehouses, updateWarehouse } from "./warehouses";
+import { listInventory, setStock } from "./inventory";
 import { getSettings, getStoreRow, storeSummary, updateStore, type StoreRow } from "./stores";
 import { listDeliveryProviders, type DeliveryAddress } from "./delivery";
 
@@ -567,6 +569,46 @@ export function apiRoutes(): Record<string, unknown> {
       GET: route(async (req) => {
         const store = await adminStore(req);
         return json(await listCustomersWithCrm(store.id));
+      }),
+    },
+
+    "/api/admin/warehouses": {
+      GET: route(async (req) => {
+        const store = await adminStore(req);
+        return json(await listWarehouses(store.id));
+      }),
+      POST: route(async (req) => {
+        const store = await adminStore(req);
+        return json(await createWarehouse(store.id, await readJson(req)), 201);
+      }),
+    },
+
+    "/api/admin/warehouses/:id": {
+      PATCH: route(async (req) => {
+        const store = await adminStore(req);
+        return json(await updateWarehouse(store.id, req.params.id, await readJson(req)));
+      }),
+      DELETE: route(async (req) => {
+        const store = await adminStore(req);
+        await deleteWarehouse(store.id, req.params.id);
+        return json({ deleted: true });
+      }),
+    },
+
+    "/api/admin/inventory": {
+      GET: route(async (req) => {
+        const store = await adminStore(req);
+        return json(await listInventory(store.id));
+      }),
+    },
+
+    "/api/admin/inventory/:productId": {
+      PATCH: route(async (req) => {
+        const store = await adminStore(req);
+        const body = await readJson(req);
+        const warehouseId = requireString(body.warehouseId, "warehouseId");
+        await setStock(store.id, req.params.productId, warehouseId, Number(body.quantity ?? 0), Number(body.reorderLevel ?? 0));
+        return json(await listInventory(store.id));
       }),
     },
 

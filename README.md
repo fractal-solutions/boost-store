@@ -150,6 +150,19 @@ The admin panel (dashboard, orders, products, CRM, payments, delivery, settings)
   (Set `ALLOW_MERCHANT_SIGNUP=true` to re-enable public admin registration.)
 - Open the panel via the header **bolt** (admins only), or go straight to it with `?admin` (e.g. `http://localhost:4000/?admin`).
 
+## Inventory & warehouses
+
+**Admin → Inventory** manages stock across physical **warehouses**. Each warehouse carries:
+
+- details — name, code, contact name / phone / email;
+- a **pickup location** (street, city, country, coordinates) used as the courier's pickup for its products;
+- **operating hours** — always-open, or specific days with open/close times (orders from a closed warehouse are rejected);
+- an active flag.
+
+Products belong to a warehouse and have a per-warehouse **stock level** and **reorder point**. The inventory view shows SKUs, on-hand units, stock value and **low-stock** warnings, with inline editing of warehouse, quantity and reorder level, plus product create/edit.
+
+When a cart contains products from **more than one warehouse**, the order records `pickupStops` and a timeline note that the courier will make multiple pickups. The courier is still booked as a **single pickup** for now (the bundled mock Uber API has no multi-stop support) — the primary pickup is the warehouse holding the most items. The mock's limitations are the only reason multi-stop isn't wired end-to-end.
+
 ## CRM
 
 **Admin → CRM** lists every customer with their CRM fields and aggregates:
@@ -236,6 +249,10 @@ Auth + admin:
 | `GET/POST/PATCH/DELETE` | `/api/admin/products` | product CRUD |
 | `GET` | `/api/admin/orders`, `/api/admin/stats` | orders + dashboard |
 | `GET` | `/api/admin/customers` | CRM customer directory |
+| `GET/POST` | `/api/admin/warehouses` | warehouses |
+| `PATCH/DELETE` | `/api/admin/warehouses/:id` | update / remove a warehouse |
+| `GET` | `/api/admin/inventory` | stock levels per product |
+| `PATCH` | `/api/admin/inventory/:productId` | set warehouse + stock + reorder |
 | `PATCH` | `/api/admin/orders/:id/status` | advance an order |
 | `POST` | `/api/admin/orders/:id/book-delivery` | (re)book the courier |
 | `GET/PUT` | `/api/admin/payments/gateways` | gateway config |

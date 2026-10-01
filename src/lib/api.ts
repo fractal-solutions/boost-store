@@ -12,8 +12,45 @@ export type Product = {
   status: string;
   featured: boolean;
   rating: number;
+  warehouseId: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type WarehouseHours = { alwaysOpen: boolean; days: string[]; open: string; close: string };
+
+export type Warehouse = {
+  id: string;
+  name: string;
+  code: string;
+  contactName: string;
+  phone: string;
+  email: string;
+  streetAddress: string;
+  city: string;
+  country: string;
+  latitude: number | null;
+  longitude: number | null;
+  hours: WarehouseHours;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InventoryItem = {
+  productId: string;
+  name: string;
+  sku: string;
+  category: string;
+  status: string;
+  price: number;
+  image: string;
+  warehouseId: string;
+  warehouseName: string;
+  quantity: number;
+  reorderLevel: number;
+  low: boolean;
+  value: number;
 };
 
 export type Coords = { latitude: number; longitude: number };

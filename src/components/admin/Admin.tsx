@@ -2,14 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { Search } from "lucide-react";
 import { TrackOrder } from "../storefront/TrackOrder";
 import { Logo } from "../ui/Logo";
-import { api, placeholderImage, type Account, type CrmCustomer, type GatewayView, type Order, type Product, type StoreSummary } from "@/lib/api";
+import { api, placeholderImage, type Account, type CrmCustomer, type GatewayView, type InventoryItem, type Order, type Product, type StoreSummary, type Warehouse } from "@/lib/api";
 import { formatDateTime, formatMoney, ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS, statusTone } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 const TABS = [
   { key: "dashboard", label: "Dashboard" },
   { key: "orders", label: "Orders" },
-  { key: "products", label: "Products" },
+  { key: "inventory", label: "Inventory" },
   { key: "crm", label: "CRM" },
   { key: "payments", label: "Payments" },
   { key: "delivery", label: "Delivery" },
@@ -114,7 +114,7 @@ export function Admin({ account, onExit, onSignOut }: { account: Account; onExit
           )
         )}
 
-        {tab === "products" && <ProductsPanel products={products} currency={store?.currency ?? "KES"} reload={loadAll} />}
+        {tab === "inventory" && <InventoryPanel currency={store?.currency ?? "KES"} />}
         {tab === "crm" && <CrmPanel currency={store?.currency ?? "KES"} />}
         {tab === "payments" && <PaymentsPanel gateways={gateways} reload={loadAll} />}
         {tab === "delivery" && store && <DeliveryPanel store={store} reload={loadAll} />}
@@ -205,6 +205,297 @@ function CrmPanel({ currency }: { currency: string }) {
             </table>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+
+function InventoryPanel({ currency }: { currency: string }) {
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editingWarehouse, setEditingWarehouse] = useState<Partial<Warehouse> | null>(null);
+  const [editingProduct, setEditingProduct] = useState<Partial<Product> | null>(null);
+  const [query, setQuery] = useState("");
+
+  const load = useCallback(async () => {
+    const [inv, wh] = await Promise.all([api.get<InventoryItem[]>("/api/admin/inventory"), api.get<Warehouse[]>("/api/admin/warehouses")]);
+    setInventory(inv);
+    setWarehouses(wh);
+  }, []);
+
+  useEffect(() => {
+    void load().finally(() => setLoading(false));
+  }, [load]);
+
+  const saveStock = async (productId: string, patch: { warehouseId?: string; quantity?: number; reorderLevel?: number }) => {
+    const list = await api.patch<InventoryItem[]>(`/api/admin/inventory/${productId}`, patch);
+    setInventory(list);
+  };
+
+  const units = inventory.reduce((sum, item) => sum + item.quantity, 0);
+  const value = inventory.reduce((sum, item) => sum + item.value, 0);
+  const low = inventory.filter((item) => item.low).length;
+  const filtered = inventory.filter((item) => `${item.name} ${item.category} ${item.sku}`.toLowerCase().includes(query.toLowerCase()));
+
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-4 sm:grid-cols-4">
+        <Stat label="SKUs" value={String(inventory.length)} />
+        <Stat label="Units on hand" value={String(units)} />
+        <Stat label="Stock value" value={formatMoney(value, currency)} />
+        <Stat label="Low stock" value={String(low)} />
+      </div>
+
+      <div className="rounded-xl border bg-background p-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <p className="font-medium">Warehouses</p>
+            <p className="text-xs text-muted-foreground">Pickup locations, operating hours and contacts.</p>
+          </div>
+          <button onClick={() => setEditingWarehouse({ active: true, hours: { alwaysOpen: true, days: [...WEEKDAYS], open: "08:00", close: "18:00" } })} className="rounded-lg bg-amber-700 px-3 py-1.5 text-sm text-white">New warehouse</button>
+        </div>
+        {warehouses.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No warehouses yet.</p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {warehouses.map((w) => (
+              <div key={w.id} className="rounded-xl border p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-medium">{w.name}{w.code && <span className="text-xs text-muted-foreground"> · {w.code}</span>}</p>
+                  <span className={cn("rounded-full px-2 py-0.5 text-[11px]", w.active ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground")}>{w.active ? "Active" : "Inactive"}</span>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">{[w.streetAddress, w.city, w.country].filter(Boolean).join(", ") || "No address"}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{w.contactName || w.phone || w.email ? [w.contactName, w.phone, w.email].filter(Boolean).join(" · ") : "No contact"}</p>
+                <p className="mt-1 text-xs text-muted-foreground">Hours: {w.hours.alwaysOpen ? "Always open" : `${w.hours.days.join(", ") || "no days"} · ${w.hours.open}–${w.hours.close}`}</p>
+                <div className="mt-2 flex gap-3 text-xs">
+                  <button onClick={() => setEditingWarehouse(w)} className="text-amber-700 hover:underline">Edit</button>
+                  <button onClick={async () => { await api.del(`/api/admin/warehouses/${w.id}`); void load(); }} className="text-red-600 hover:underline">Delete</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-xl border bg-background p-4">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <div className="flex flex-1 items-center gap-2 rounded-lg border px-3 py-2">
+            <Search className="h-4 w-4 text-muted-foreground" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search products" className="w-full bg-transparent text-sm outline-none" />
+          </div>
+          <button onClick={() => setEditingProduct({ status: "active", stock: 0, reorderLevel: 5, warehouseId: warehouses[0]?.id ?? "" })} className="rounded-lg bg-amber-700 px-3 py-1.5 text-sm text-white">New product</button>
+        </div>
+
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : filtered.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No products.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-left text-muted-foreground">
+                <tr>
+                  <th className="py-2">Product</th>
+                  <th>Warehouse</th>
+                  <th className="text-right">On hand</th>
+                  <th className="text-right">Reorder at</th>
+                  <th className="text-right">Value</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((item) => (
+                  <tr key={item.productId} className="border-t">
+                    <td className="py-2">
+                      <div className="flex items-center gap-2">
+                        <img src={placeholderImage(item.image, 64)} alt="" className="h-9 w-9 rounded-lg object-cover" />
+                        <div>
+                          <p className="font-medium">
+                            {item.name}
+                            {item.low && <span className="ml-2 rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-600">Low</span>}
+                          </p>
+                          <p className="text-xs text-muted-foreground">{item.category} · {item.status}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <select value={item.warehouseId} onChange={(event) => saveStock(item.productId, { warehouseId: event.target.value })} className="rounded-lg border px-2 py-1 text-xs">
+                        <option value="">Unassigned</option>
+                        {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                      </select>
+                    </td>
+                    <td className="text-right">
+                      <input type="number" defaultValue={item.quantity} min={0} onBlur={(event) => { const v = Number(event.target.value); if (v !== item.quantity) void saveStock(item.productId, { quantity: v }); }} className="w-20 rounded-lg border px-2 py-1 text-right text-xs" />
+                    </td>
+                    <td className="text-right">
+                      <input type="number" defaultValue={item.reorderLevel} min={0} onBlur={(event) => { const v = Number(event.target.value); if (v !== item.reorderLevel) void saveStock(item.productId, { reorderLevel: v }); }} className="w-20 rounded-lg border px-2 py-1 text-right text-xs" />
+                    </td>
+                    <td className="text-right">{formatMoney(item.value, currency)}</td>
+                    <td className="text-right">
+                      <button onClick={() => setEditingProduct({ id: item.productId, name: item.name, category: item.category, price: item.price, image: item.image, status: item.status, warehouseId: item.warehouseId, stock: item.quantity, reorderLevel: item.reorderLevel })} className="text-xs text-amber-700 hover:underline">Edit</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {editingWarehouse && <WarehouseModal value={editingWarehouse} onClose={() => setEditingWarehouse(null)} onSaved={() => { setEditingWarehouse(null); void load(); }} />}
+      {editingProduct && <CatalogModal value={editingProduct} warehouses={warehouses} onClose={() => setEditingProduct(null)} onSaved={() => { setEditingProduct(null); void load(); }} />}
+    </div>
+  );
+}
+
+function WarehouseModal({ value, onClose, onSaved }: { value: Partial<Warehouse>; onClose: () => void; onSaved: () => void }) {
+  const [draft, setDraft] = useState<Partial<Warehouse>>({ active: true, hours: { alwaysOpen: true, days: [...WEEKDAYS], open: "08:00", close: "18:00" }, ...value });
+  const [busy, setBusy] = useState(false);
+  const set = (patch: Partial<Warehouse>) => setDraft((current) => ({ ...current, ...patch }));
+  const hours = draft.hours ?? { alwaysOpen: true, days: [...WEEKDAYS], open: "08:00", close: "18:00" };
+  const setHours = (patch: Partial<typeof hours>) => set({ hours: { ...hours, ...patch } });
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const payload = {
+        name: draft.name, code: draft.code, contactName: draft.contactName, phone: draft.phone, email: draft.email,
+        streetAddress: draft.streetAddress, city: draft.city, country: draft.country,
+        latitude: draft.latitude, longitude: draft.longitude, hours: draft.hours, active: draft.active !== false,
+      };
+      if (draft.id) await api.patch(`/api/admin/warehouses/${draft.id}`, payload);
+      else await api.post("/api/admin/warehouses", payload);
+      onSaved();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} title={draft.id ? "Edit warehouse" : "New warehouse"}>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Input label="Name" value={draft.name ?? ""} onChange={(v) => set({ name: v })} />
+        <Input label="Code" value={draft.code ?? ""} onChange={(v) => set({ code: v })} />
+        <Input label="Contact name" value={draft.contactName ?? ""} onChange={(v) => set({ contactName: v })} />
+        <Input label="Phone" value={draft.phone ?? ""} onChange={(v) => set({ phone: v })} />
+        <Input label="Email" value={draft.email ?? ""} onChange={(v) => set({ email: v })} />
+        <Input label="City" value={draft.city ?? ""} onChange={(v) => set({ city: v })} />
+        <div className="sm:col-span-2"><Input label="Street address (pickup)" value={draft.streetAddress ?? ""} onChange={(v) => set({ streetAddress: v })} /></div>
+        <Input label="Country" value={draft.country ?? ""} onChange={(v) => set({ country: v })} />
+        <Input label="Latitude" value={draft.latitude == null ? "" : String(draft.latitude)} onChange={(v) => set({ latitude: v ? Number(v) : null })} />
+        <Input label="Longitude" value={draft.longitude == null ? "" : String(draft.longitude)} onChange={(v) => set({ longitude: v ? Number(v) : null })} />
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={draft.active !== false} onChange={(event) => set({ active: event.target.checked })} className="h-4 w-4 accent-amber-700" /> Active
+        </label>
+      </div>
+
+      <div className="mt-4 rounded-xl border border-border/60 p-3">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium">Operating hours</p>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={hours.alwaysOpen} onChange={(event) => setHours({ alwaysOpen: event.target.checked })} className="h-4 w-4 accent-amber-700" /> Always open
+          </label>
+        </div>
+        {!hours.alwaysOpen && (
+          <div className="mt-3 space-y-3">
+            <div className="flex flex-wrap gap-1.5">
+              {WEEKDAYS.map((day) => (
+                <button key={day} onClick={() => setHours({ days: hours.days.includes(day) ? hours.days.filter((d) => d !== day) : [...hours.days, day] })} className={cn("rounded-full border px-2.5 py-1 text-xs capitalize", hours.days.includes(day) ? "border-amber-600 bg-amber-50 text-amber-800" : "hover:bg-muted")}>{day}</button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+              <input type="time" value={hours.open} onChange={(event) => setHours({ open: event.target.value })} className="rounded-lg border px-2 py-1" />
+              <span className="text-muted-foreground">to</span>
+              <input type="time" value={hours.close} onChange={(event) => setHours({ close: event.target.value })} className="rounded-lg border px-2 py-1" />
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-5 flex justify-end gap-2">
+        <button onClick={onClose} className="rounded-lg border px-4 py-2 text-sm">Cancel</button>
+        <button onClick={save} disabled={busy} className="rounded-lg bg-amber-700 px-4 py-2 text-sm text-white disabled:opacity-50">Save</button>
+      </div>
+    </Modal>
+  );
+}
+
+function CatalogModal({ value, warehouses, onClose, onSaved }: { value: Partial<Product>; warehouses: Warehouse[]; onClose: () => void; onSaved: () => void }) {
+  const [draft, setDraft] = useState<Partial<Product> & { reorderLevel?: number }>({ status: "active", featured: false, ...value });
+  const [busy, setBusy] = useState(false);
+  const set = (patch: Partial<Product> & { reorderLevel?: number }) => setDraft((current) => ({ ...current, ...patch }));
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const catalog = {
+        name: draft.name, description: draft.description, price: Number(draft.price),
+        compareAtPrice: draft.compareAtPrice ?? null, category: draft.category, image: draft.image,
+        status: draft.status, featured: Boolean(draft.featured), warehouseId: draft.warehouseId,
+        stock: Number(draft.stock ?? 0), reorderLevel: Number(draft.reorderLevel ?? 0),
+      };
+      if (draft.id) {
+        await api.patch(`/api/admin/products/${draft.id}`, { ...catalog, stock: undefined });
+        if (draft.warehouseId) await api.patch(`/api/admin/inventory/${draft.id}`, { warehouseId: draft.warehouseId, quantity: Number(draft.stock ?? 0), reorderLevel: Number(draft.reorderLevel ?? 0) });
+      } else {
+        await api.post("/api/admin/products", catalog);
+      }
+      onSaved();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} title={draft.id ? "Edit product" : "New product"}>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Input label="Name" value={draft.name ?? ""} onChange={(v) => set({ name: v })} />
+        <Input label="Category" value={draft.category ?? ""} onChange={(v) => set({ category: v })} />
+        <Input label="Price" type="number" value={String(draft.price ?? "")} onChange={(v) => set({ price: Number(v) })} />
+        <Input label="Compare at" type="number" value={String(draft.compareAtPrice ?? "")} onChange={(v) => set({ compareAtPrice: v ? Number(v) : null })} />
+        <Input label="Stock" type="number" value={String(draft.stock ?? "")} onChange={(v) => set({ stock: Number(v) })} />
+        <Input label="Reorder at" type="number" value={String((draft as { reorderLevel?: number }).reorderLevel ?? 0)} onChange={(v) => set({ reorderLevel: Number(v) })} />
+        <label className="block text-sm">
+          <span className="mb-1 block text-muted-foreground">Warehouse</span>
+          <select value={draft.warehouseId ?? ""} onChange={(event) => set({ warehouseId: event.target.value })} className="w-full rounded-lg border px-3 py-2">
+            <option value="">Unassigned</option>
+            {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+          </select>
+        </label>
+        <Input label="Image seed" value={draft.image ?? ""} onChange={(v) => set({ image: v })} />
+        <div className="sm:col-span-2">
+          <label className="block text-sm">
+            <span className="mb-1 block text-muted-foreground">Description</span>
+            <textarea value={draft.description ?? ""} onChange={(event) => set({ description: event.target.value })} className="h-20 w-full rounded-lg border px-3 py-2" />
+          </label>
+        </div>
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={Boolean(draft.featured)} onChange={(event) => set({ featured: event.target.checked })} className="h-4 w-4 accent-amber-700" /> Featured</label>
+        <label className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Status</span>
+          <select value={draft.status ?? "active"} onChange={(event) => set({ status: event.target.value })} className="rounded-lg border px-2 py-1">
+            <option value="active">Active</option>
+            <option value="draft">Draft</option>
+          </select>
+        </label>
+      </div>
+      <div className="mt-5 flex justify-end gap-2">
+        <button onClick={onClose} className="rounded-lg border px-4 py-2 text-sm">Cancel</button>
+        <button onClick={save} disabled={busy} className="rounded-lg bg-amber-700 px-4 py-2 text-sm text-white disabled:opacity-50">Save</button>
+      </div>
+    </Modal>
+  );
+}
+
+function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative max-h-[90vh] w-full max-w-xl overflow-auto rounded-2xl bg-background p-5 shadow-xl">
+        <h3 className="mb-4 font-semibold">{title}</h3>
+        {children}
       </div>
     </div>
   );
