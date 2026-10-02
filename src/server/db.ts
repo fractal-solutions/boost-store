@@ -36,6 +36,9 @@ const migrations = [
   "ALTER TABLE orders ADD COLUMN stock_state TEXT NOT NULL DEFAULT ''",
   "ALTER TABLE inventory ADD COLUMN reserved INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE inventory ADD COLUMN in_transit INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE products ADD COLUMN cost REAL NOT NULL DEFAULT 0",
+  "ALTER TABLE products ADD COLUMN track_inventory INTEGER NOT NULL DEFAULT 1",
+  "ALTER TABLE purchases ADD COLUMN sent_at TEXT",
 ];
 for (const statement of migrations) {
   try {
@@ -43,6 +46,15 @@ for (const statement of migrations) {
   } catch {
     // column already exists
   }
+}
+
+// One-time backfill for databases created before the product cost field.
+// Guarded by SQLite's `user_version` so it runs EXACTLY once and never again —
+// even if the merchant later sets every cost to zero, margins are never touched.
+const versionRows = (await db`PRAGMA user_version`) as { user_version: number }[];
+if (Number(versionRows[0]?.user_version ?? 0) < 1) {
+  await db.unsafe("UPDATE products SET cost = ROUND(price * 0.6) WHERE price > 0 AND cost = 0");
+  await db.unsafe("PRAGMA user_version = 1");
 }
 
 await seedIfEmpty(db);

@@ -13,6 +13,8 @@ export type Product = {
   featured: boolean;
   rating: number;
   warehouseId: string;
+  cost: number;
+  trackInventory: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -53,6 +55,62 @@ export type InventoryItem = {
   reorderLevel: number;
   low: boolean;
   value: number;
+  cost: number;
+  costValue: number;
+  marginValue: number;
+  marginPct: number;
+};
+
+export type Vendor = {
+  id: string;
+  name: string;
+  contactName: string;
+  phone: string;
+  email: string;
+  address: string;
+  notes: string;
+  active: boolean;
+  owed: number;
+  purchaseCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PurchaseItem = { id: string; productId: string; name: string; quantity: number; unitCost: number; lineTotal: number };
+
+export type Purchase = {
+  id: string;
+  vendorId: string;
+  vendorName: string;
+  reference: string;
+  status: string;
+  paymentStatus: string;
+  subtotal: number;
+  total: number;
+  amountPaid: number;
+  notes: string;
+  receivedAt: string | null;
+  sentAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  items: PurchaseItem[];
+};
+
+export type Accounting = {
+  currency: string;
+  sales: { total: number; paid: number; outstanding: number; orders: number };
+  purchases: { total: number; paid: number; owed: number; count: number };
+  cogs: number;
+  grossProfit: number;
+  grossMarginPct: number;
+  inventory: { units: number; costValue: number; retailValue: number; itemCount: number };
+  balance: { cash: number; receivables: number; inventoryCost: number; totalAssets: number; payables: number; equity: number };
+  receivablesOrders: { id: string; customer: string; total: number; paymentStatus: string }[];
+  payablesVendors: { id: string; name: string; owed: number }[];
+  salesOrders: { id: string; customer: string; total: number; status: string; paymentStatus: string; createdAt: string }[];
+  cogsItems: { name: string; quantity: number; unitCost: number; total: number }[];
+  purchaseList: { id: string; vendor: string; total: number; amountPaid: number; status: string; paymentStatus: string; createdAt: string }[];
+  purchasePayments: { id: string; vendor: string; amount: number; gateway: string; reference: string; createdAt: string }[];
 };
 
 export type StockMovement = { id: string; type: string; quantity: number; reference: string; createdAt: string };
@@ -160,7 +218,17 @@ export type StoreSettings = {
   pickup: DeliveryAddress & { latitude: number; longitude: number };
   demoDropoff: Coords;
   otp: { webhookUrl: string };
+  purchases: { webhookUrl: string };
   terms: string;
+  accounting: AccountingOptions;
+};
+
+export type AccountingOptions = {
+  includeCash: boolean;
+  includeReceivables: boolean;
+  includeInventory: boolean;
+  inventoryBasis: "cost" | "retail";
+  includePayables: boolean;
 };
 
 export type StoreSummary = {

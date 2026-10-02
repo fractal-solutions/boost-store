@@ -17,6 +17,10 @@ export type InventoryItem = {
   reorderLevel: number;
   low: boolean;
   value: number;
+  cost: number;
+  costValue: number;
+  marginValue: number;
+  marginPct: number;
 };
 
 export type StockMovement = { id: string; type: string; quantity: number; reference: string; createdAt: string };
@@ -47,7 +51,7 @@ const COVER_DAYS = 14;
 /** One row per product with its home warehouse and stock buckets. */
 export async function listInventory(storeId: string): Promise<InventoryItem[]> {
   const rows = (await db`
-    SELECT p.id, p.name, p.slug, p.category, p.status, p.price, p.image, p.warehouse_id,
+    SELECT p.id, p.name, p.slug, p.category, p.status, p.price, p.cost, p.image, p.warehouse_id,
            w.name AS warehouse_name,
            COALESCE(i.quantity, p.stock) AS quantity,
            COALESCE(i.reserved, 0) AS reserved,
@@ -64,6 +68,7 @@ export async function listInventory(storeId: string): Promise<InventoryItem[]> {
     const inTransit = Number(row.in_transit ?? 0);
     const reorderLevel = Number(row.reorder_level ?? 0);
     const price = Number(row.price ?? 0);
+    const cost = Number(row.cost ?? 0);
     return {
       productId: String(row.id),
       name: String(row.name),
@@ -80,6 +85,10 @@ export async function listInventory(storeId: string): Promise<InventoryItem[]> {
       reorderLevel,
       low: reorderLevel > 0 && quantity <= reorderLevel,
       value: quantity * price,
+      cost,
+      costValue: quantity * cost,
+      marginValue: quantity * (price - cost),
+      marginPct: price > 0 ? (price - cost) / price : 0,
     };
   });
 }
@@ -181,8 +190,22 @@ export async function syncStockForStatus(storeId: string, orderId: string, statu
   }
 }
 
-// --- history + forecast ---
+/** Add stock received from a purchase to on-hand (+ products.stock). */
+export async function receiveStock(storeId: string, productId: string, quantity: number, reference = ""): Promise<void> {
+  const q = Math.max(0, Math.trunc(quantity));
+  if (q <= 0) return;
+  const now = nowIso();
+  const rows = (await db`SELECT warehouse_id FROM products WHERE id = ${productId} AND store_id = ${storeId} LIMIT 1`) as { warehouse_id: string }[];
+  const warehouseId = str(rows[0]?.warehouse_id);
+  if (warehouseId) {
+    await db`INSERT INTO inventory ${db({ id: newId("inv"), store_id: storeId, product_id: productId, warehouse_id: warehouseId, quantity: q, reserved: 0, in_transit: 0, reorder_level: 0, updated_at: now })}
+      ON CONFLICT(product_id, warehouse_id) DO UPDATE SET quantity = quantity + excluded.quantity, updated_at = excluded.updated_at`;
+  }
+  await db`UPDATE products SET stock = stock + ${q}, updated_at = ${now} WHERE id = ${productId} AND store_id = ${storeId}`;
+  await recordMovement(storeId, productId, warehouseId, "purchase", q, reference);
+}
 
+// --- history + forecast ---
 export async function productHistory(storeId: string, productId: string): Promise<ProductHistory | null> {
   const productRows = (await db`SELECT id, name, stock, warehouse_id FROM products WHERE id = ${productId} AND store_id = ${storeId} LIMIT 1`) as Record<string, unknown>[];
   const product = productRows[0];

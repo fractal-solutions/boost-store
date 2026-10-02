@@ -21,8 +21,18 @@ export type StoreSettings = {
   demoDropoff: { latitude: number; longitude: number };
   // Customer onboarding / OTP integration (n8n or similar webhook).
   otp: { webhookUrl: string };
+  // Purchase-order integration (n8n or similar webhook) that sends POs to vendors.
+  purchases: { webhookUrl: string };
   // Terms & conditions shown at signup; editable from the admin panel.
   terms: string;
+  // Balance-sheet presentation options.
+  accounting: {
+    includeCash: boolean;
+    includeReceivables: boolean;
+    includeInventory: boolean;
+    inventoryBasis: "cost" | "retail";
+    includePayables: boolean;
+  };
 };
 
 export const DEFAULT_TERMS = [
@@ -70,7 +80,15 @@ export function defaultSettings(): StoreSettings {
     },
     demoDropoff: { latitude: env.demoDropoffLat, longitude: env.demoDropoffLng },
     otp: { webhookUrl: env.otpWebhookUrl },
+    purchases: { webhookUrl: env.purchaseWebhookUrl },
     terms: DEFAULT_TERMS,
+    accounting: {
+      includeCash: true,
+      includeReceivables: true,
+      includeInventory: true,
+      inventoryBasis: "cost",
+      includePayables: true,
+    },
   };
 }
 

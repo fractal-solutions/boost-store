@@ -62,6 +62,9 @@ import {
 import { accountFromCustomer, getAccount, loginAccount, logoutAccount } from "./account";
 import { createWarehouse, deleteWarehouse, listWarehouses, updateWarehouse } from "./warehouses";
 import { listInventory, setStock, productHistory } from "./inventory";
+import { createVendor, deleteVendor, listVendors, updateVendor } from "./vendors";
+import { createPurchase, deletePurchase, getPurchase, listPurchases, payPurchase, payVendor, receivePurchase, sendPurchase, updatePurchase } from "./purchases";
+import { accountingSummary } from "./accounting";
 import { getSettings, getStoreRow, storeSummary, updateStore, type StoreRow } from "./stores";
 import { listDeliveryProviders, type DeliveryAddress } from "./delivery";
 
@@ -618,6 +621,91 @@ export function apiRoutes(): Record<string, unknown> {
         const history = await productHistory(store.id, req.params.productId);
         if (!history) throw notFound("Product not found.");
         return json(history);
+      }),
+    },
+
+    "/api/admin/vendors": {
+      GET: route(async (req) => {
+        const store = await adminStore(req);
+        return json(await listVendors(store.id));
+      }),
+      POST: route(async (req) => {
+        const store = await adminStore(req);
+        return json(await createVendor(store.id, await readJson(req)), 201);
+      }),
+    },
+
+    "/api/admin/vendors/:id": {
+      PATCH: route(async (req) => {
+        const store = await adminStore(req);
+        return json(await updateVendor(store.id, req.params.id, await readJson(req)));
+      }),
+      DELETE: route(async (req) => {
+        const store = await adminStore(req);
+        await deleteVendor(store.id, req.params.id);
+        return json({ deleted: true });
+      }),
+    },
+
+    "/api/admin/vendors/:id/pay": {
+      POST: route(async (req) => {
+        const store = await adminStore(req);
+        return json(await payVendor(store.id, req.params.id, await readJson(req)));
+      }),
+    },
+
+    "/api/admin/purchases": {
+      GET: route(async (req) => {
+        const store = await adminStore(req);
+        return json(await listPurchases(store.id));
+      }),
+      POST: route(async (req) => {
+        const store = await adminStore(req);
+        return json(await createPurchase(store.id, await readJson(req)), 201);
+      }),
+    },
+
+    "/api/admin/purchases/:id": {
+      GET: route(async (req) => {
+        const store = await adminStore(req);
+        return json(await getPurchase(store.id, req.params.id));
+      }),
+      PATCH: route(async (req) => {
+        const store = await adminStore(req);
+        return json(await updatePurchase(store.id, req.params.id, await readJson(req)));
+      }),
+      DELETE: route(async (req) => {
+        const store = await adminStore(req);
+        await deletePurchase(store.id, req.params.id);
+        return json({ deleted: true });
+      }),
+    },
+
+    "/api/admin/purchases/:id/send": {
+      POST: route(async (req) => {
+        const store = await adminStore(req);
+        return json(await sendPurchase(store, req.params.id));
+      }),
+    },
+
+    "/api/admin/purchases/:id/receive": {
+      POST: route(async (req) => {
+        const store = await adminStore(req);
+        return json(await receivePurchase(store.id, req.params.id));
+      }),
+    },
+
+    "/api/admin/purchases/:id/pay": {
+      POST: route(async (req) => {
+        const store = await adminStore(req);
+        return json(await payPurchase(store.id, req.params.id, await readJson(req)));
+      }),
+    },
+
+    "/api/admin/accounting": {
+      GET: route(async (req) => {
+        const store = await adminStore(req);
+        return json(await accountingSummary(store.id, store.currency));
       }),
     },
 

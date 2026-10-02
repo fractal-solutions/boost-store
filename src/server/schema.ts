@@ -46,10 +46,69 @@ CREATE TABLE IF NOT EXISTS products (
   featured INTEGER NOT NULL DEFAULT 0,
   rating REAL NOT NULL DEFAULT 4.6,
   warehouse_id TEXT DEFAULT '',
+  cost REAL NOT NULL DEFAULT 0,
+  track_inventory INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_products_store ON products(store_id, status);
+
+CREATE TABLE IF NOT EXISTS vendors (
+  id TEXT PRIMARY KEY,
+  store_id TEXT NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  contact_name TEXT DEFAULT '',
+  phone TEXT DEFAULT '',
+  email TEXT DEFAULT '',
+  address TEXT DEFAULT '',
+  notes TEXT DEFAULT '',
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_vendors_store ON vendors(store_id);
+
+CREATE TABLE IF NOT EXISTS purchases (
+  id TEXT PRIMARY KEY,
+  store_id TEXT NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+  vendor_id TEXT DEFAULT '',
+  reference TEXT DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'draft',
+  payment_status TEXT NOT NULL DEFAULT 'unpaid',
+  subtotal REAL NOT NULL DEFAULT 0,
+  total REAL NOT NULL DEFAULT 0,
+  amount_paid REAL NOT NULL DEFAULT 0,
+  notes TEXT DEFAULT '',
+  received_at TEXT,
+  sent_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_purchases_store ON purchases(store_id, created_at);
+
+CREATE TABLE IF NOT EXISTS purchase_items (
+  id TEXT PRIMARY KEY,
+  purchase_id TEXT NOT NULL REFERENCES purchases(id) ON DELETE CASCADE,
+  product_id TEXT DEFAULT '',
+  name TEXT NOT NULL,
+  quantity INTEGER NOT NULL DEFAULT 0,
+  unit_cost REAL NOT NULL DEFAULT 0,
+  line_total REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_purchase_items_purchase ON purchase_items(purchase_id);
+
+CREATE TABLE IF NOT EXISTS purchase_payments (
+  id TEXT PRIMARY KEY,
+  store_id TEXT NOT NULL REFERENCES stores(id) ON DELETE CASCADE,
+  purchase_id TEXT NOT NULL REFERENCES purchases(id) ON DELETE CASCADE,
+  vendor_id TEXT DEFAULT '',
+  amount REAL NOT NULL DEFAULT 0,
+  gateway TEXT DEFAULT '',
+  reference TEXT DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'paid',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_purchase_payments_purchase ON purchase_payments(purchase_id);
 
 CREATE TABLE IF NOT EXISTS warehouses (
   id TEXT PRIMARY KEY,

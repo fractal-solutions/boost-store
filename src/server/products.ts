@@ -18,6 +18,8 @@ export type ProductRow = {
   featured: number;
   rating: number;
   warehouse_id: string;
+  cost: number;
+  track_inventory: number;
   created_at: string;
   updated_at: string;
 };
@@ -37,6 +39,8 @@ export type ProductApi = {
   featured: boolean;
   rating: number;
   warehouseId: string;
+  cost: number;
+  trackInventory: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -57,6 +61,8 @@ export function hydrateProduct(row: ProductRow): ProductApi {
     featured: Number(row.featured) === 1,
     rating: Number(row.rating),
     warehouseId: str(row.warehouse_id),
+    cost: Number(row.cost ?? 0),
+    trackInventory: Number(row.track_inventory ?? 1) === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -111,6 +117,8 @@ export async function createProduct(storeId: string, body: Record<string, unknow
     featured: body.featured ? 1 : 0,
     rating: Number.isFinite(Number(body.rating)) ? Number(body.rating) : 4.6,
     warehouse_id: str(body.warehouseId),
+    cost: Number.isFinite(Number(body.cost)) ? Number(body.cost) : 0,
+    track_inventory: body.trackInventory === false ? 0 : 1,
     created_at: now,
     updated_at: now,
   };
@@ -140,6 +148,8 @@ export async function updateProduct(storeId: string, productId: string, body: Re
   if (body.featured !== undefined) fields.featured = body.featured ? 1 : 0;
   if (body.rating !== undefined && Number.isFinite(Number(body.rating))) fields.rating = Number(body.rating);
   if (typeof body.warehouseId === "string") fields.warehouse_id = body.warehouseId;
+  if (body.cost !== undefined && Number.isFinite(Number(body.cost))) fields.cost = Number(body.cost);
+  if (body.trackInventory !== undefined) fields.track_inventory = body.trackInventory ? 1 : 0;
   fields.updated_at = nowIso();
   const keys = Object.keys(fields);
   await db`UPDATE products SET ${db(fields, ...keys)} WHERE id = ${productId} AND store_id = ${storeId}`;

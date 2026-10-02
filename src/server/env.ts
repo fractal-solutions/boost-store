@@ -24,6 +24,9 @@ export const env = {
   // to email and WhatsApp). When empty, the code is shown to the user instead.
   otpWebhookUrl: process.env.OTP_WEBHOOK_URL || "",
 
+  // Purchase-order webhook (e.g. an n8n workflow) that emails/sends the PO to the vendor.
+  purchaseWebhookUrl: process.env.PURCHASE_WEBHOOK_URL || "",
+
   // Admin (merchant) accounts are provisioned by the operator. Public signup of
   // new admin/merchant accounts is disabled unless explicitly enabled.
   allowMerchantSignup: /^(1|true|yes|on)$/i.test(process.env.ALLOW_MERCHANT_SIGNUP || ""),

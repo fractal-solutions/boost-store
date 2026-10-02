@@ -73,6 +73,7 @@ export async function seedIfEmpty(db: SQL): Promise<void> {
         featured: product.featured ? 1 : 0,
         rating: product.rating,
         warehouse_id: warehouseId,
+        cost: Math.round(product.price * 0.6),
         created_at: now,
         updated_at: now,
       })}`;

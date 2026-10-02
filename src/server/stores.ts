@@ -88,6 +88,12 @@ export async function updateStore(
   if (body.otp && typeof body.otp === "object") {
     settings.otp = { ...settings.otp, ...(body.otp as object) } as StoreSettings["otp"];
   }
+  if (body.purchases && typeof body.purchases === "object") {
+    settings.purchases = { ...settings.purchases, ...(body.purchases as object) } as StoreSettings["purchases"];
+  }
+  if (body.accounting && typeof body.accounting === "object") {
+    settings.accounting = { ...settings.accounting, ...(body.accounting as object) } as StoreSettings["accounting"];
+  }
   fields.settings = JSON.stringify(settings);
   fields.updated_at = nowIso();
 

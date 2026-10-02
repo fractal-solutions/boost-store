@@ -159,7 +159,7 @@ The admin panel (dashboard, orders, products, CRM, payments, delivery, settings)
 - **operating hours** — always-open, or specific days with open/close times (orders from a closed warehouse are rejected);
 - an active flag.
 
-Products belong to a warehouse and have a per-warehouse **stock level** and **reorder point**. The Inventory view is mobile-first (cards on phones, a table on larger screens) and shows summary tiles (SKUs, on-hand, in-transit, low-stock and **total stock value**) plus a **value per warehouse** on each warehouse card. Warehouse, quantity and reorder level are edited in each item's modal, and destructive actions (e.g. deleting a warehouse) raise a confirmation dialog first.
+Products have a **price** and a **cost**, so the Inventory view shows **margin** (retail value, value at cost, and total margin) in the summary tiles, per warehouse, per product row, and in each item's history. (A **one-time** migration backfills existing products with 60% of price on the first boot of this version; it's recorded in the database via `user_version` and **never runs again**, so later cost edits — including setting them to zero — are never overwritten.) The view is mobile-first (cards on phones, a table on larger screens); stock, reorder level, cost and warehouse are edited in each item's modal, and destructive actions raise a confirmation dialog.
 
 The whole admin panel is responsive — the Dashboard stat tiles, the Orders list (cards on phones, table on desktop) and the tracking detail all adapt to small screens.
 
@@ -168,6 +168,33 @@ The whole admin panel is responsive — the Dashboard stat tiles, the Orders lis
 Each item has a **History** view: units sold, revenue and order count, a 30-day units chart, the stock-movement log, and a **forecast** (average daily sales, days of cover, suggested reorder quantity, and a rising/steady/falling trend).
 
 When a cart contains products from **more than one warehouse**, the order records `pickupStops` and a timeline note that the courier will make multiple pickups. The courier is still booked as a **single pickup** for now (the bundled mock Uber API has no multi-stop support) — the primary pickup is the warehouse holding the most items. The mock's limitations are the only reason multi-stop isn't wired end-to-end.
+
+## Procurement (vendors & purchases)
+
+**Admin → Purchases** covers buying stock from suppliers:
+
+- **Vendors** — name, contact, phone, email, address, notes, active flag, with the amount **owed** to each.
+- **Purchases** — pick a vendor, add line items (product, quantity, unit cost), and create the order. Each purchase card shows **lines · units** and can be **expanded to view the purchase lines** (item, qty, unit cost, line total). While a purchase **hasn't been received or paid**, you can **edit its lines** and **Send PO** to the vendor through the configured webhook (Admin → Settings → Purchase orders; POSTs `{ event, store, vendor, purchase, items }` to your n8n endpoint). Then:
+  - **Receive into stock** — adds each line's quantity to inventory (on-hand) and logs a `purchase` stock movement.
+  - **Pay vendor** — record a full or partial payment; the purchase becomes `paid` / `partial`, and the vendor's **owed** balance updates.
+- **Paying is direct**: each outstanding purchase shows a prominent **Pay {amount}** button, and each vendor shows their balance with a **Pay** button that allocates a payment across that vendor's **oldest unpaid purchases** (with Full-balance / Half shortcuts).
+- **Deleting is tiered**: an incomplete purchase deletes with a normal confirmation; a **received or paid** purchase requires typing `DELETE` to confirm (and a received purchase reverses its stock).
+
+Supplier payments go through the same gateway list (`mock` records instantly; M-PESA payouts would use the B2C/disbursement API, which must be enabled on the account).
+
+## Accounting dashboard
+
+**Admin → Payments** opens with a visual **balance sheet and accounting dashboard** derived from sales and purchases:
+
+- **Metrics** — sales (collected / outstanding), purchases (paid / owed), COGS, gross profit, gross margin %, and inventory at cost or retail.
+- **Balance sheet** — a **composition bar** of Assets (cash / receivables / inventory) beside **Liabilities & equity** (payables / overdraft / equity), with per-line values. **Every line is clickable** to drill into its composition (cash = collections − vendor payments; receivables = the outstanding orders; inventory = units/value/margin; payables = the vendors owed; equity = Assets − Liabilities). Every component is **toggleable** (include/exclude cash, receivables, inventory, payables) and inventory can be valued **at cost or at retail**; choices are saved to the store.
+  - **Negative cash is reclassified** as a **Bank overdraft** liability, so assets never go negative (a business can't hold negative cash — it's funded by an overdraft or owner's capital).
+- **Sales & costs** — a bar chart (Sales / COGS / Gross profit) plus a collected-vs-outstanding progress bar. Each bar/row is clickable: **Sales** lists the orders, **COGS** lists the per-product cost breakdown, **Profit** shows the sales − COGS waterfall, **Collected** lists the payments received.
+- **Purchases & payables** — a bar chart (Purchases / Paid / Owed) plus a paid-vs-owed progress bar, each clickable: **Purchases** lists the purchase orders, **Paid** lists the vendor payments, **Owed** lists the vendors outstanding.
+
+The dashboard is laid out in stacked cards so it reads well on phones and desktops.
+
+Gateways and delivery credentials are shown as **masked summaries** (partial redaction) — click **Configure** to open a modal that reveals/edits the fields. Secrets are stored server-side and returned masked; entering a value replaces it, leaving it blank keeps the current one.
 
 ## CRM
 
@@ -260,6 +287,15 @@ Auth + admin:
 | `GET` | `/api/admin/inventory` | stock levels per product |
 | `PATCH` | `/api/admin/inventory/:productId` | set warehouse + stock + reorder |
 | `GET` | `/api/admin/inventory/:productId/history` | item performance + forecast |
+| `GET/POST` | `/api/admin/vendors` | vendors |
+| `PATCH/DELETE` | `/api/admin/vendors/:id` | update / remove a vendor |
+| `GET/POST` | `/api/admin/purchases` | purchases |
+| `POST` | `/api/admin/purchases/:id/receive` | receive stock into inventory |
+| `PATCH/DELETE` | `/api/admin/purchases/:id` | edit lines / delete a purchase |
+| `POST` | `/api/admin/purchases/:id/send` | send the PO to the vendor webhook |
+| `POST` | `/api/admin/purchases/:id/pay` | record a vendor payment |
+| `POST` | `/api/admin/vendors/:id/pay` | pay a vendor (allocate across purchases) |
+| `GET` | `/api/admin/accounting` | balance sheet + accounting metrics |
 | `PATCH` | `/api/admin/orders/:id/status` | advance an order |
 | `POST` | `/api/admin/orders/:id/book-delivery` | (re)book the courier |
 | `GET/PUT` | `/api/admin/payments/gateways` | gateway config |
@@ -282,6 +318,7 @@ Copy `.env.example` to `.env`. Key variables:
 | `MPESA_CONSUMER_KEY` / `_SECRET` / `SHORTCODE` / `PASSKEY` | — | Daraja credentials |
 | `PAYMENT_TIMING_DEFAULT` | `prepay` | `prepay` / `cod` |
 | `OTP_WEBHOOK_URL` | — | n8n webhook for customer OTP (empty = demo code on screen) |
+| `PURCHASE_WEBHOOK_URL` | — | n8n webhook that sends purchase orders to vendors |
 | `GEOCODER_URL` | Photon | address search + reverse geocoding |
 | `ROUTER_URL` / `ROUTER_PROFILE` | OSRM / `driving` | routing between pickup and drop-off |
 | `MAP_TILE_URL` / `MAP_TILE_ATTRIBUTION` | CARTO | map tiles served to the browser |
