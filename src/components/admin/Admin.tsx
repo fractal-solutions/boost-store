@@ -1907,10 +1907,25 @@ function SettingsPanel({ store, reload }: { store: StoreSummary; reload: () => v
   const [terms, setTerms] = useState(store.settings.terms ?? "");
   const [otpWebhook, setOtpWebhook] = useState(store.settings.otp?.webhookUrl ?? "");
   const [purchaseWebhook, setPurchaseWebhook] = useState(store.settings.purchases?.webhookUrl ?? "");
+  const [notifyWebhook, setNotifyWebhook] = useState(store.settings.notifications?.webhookUrl ?? "");
+  const [taxEnabled, setTaxEnabled] = useState(store.settings.tax?.enabled ?? false);
+  const [taxRate, setTaxRate] = useState(String(store.settings.tax?.rate ?? 0));
+  const [taxInclusive, setTaxInclusive] = useState(store.settings.tax?.inclusive ?? false);
   const [saved, setSaved] = useState(false);
 
   const save = async () => {
-    await api.patch("/api/admin/settings", { name, description, announcement, currency, paymentTiming: timing, terms, otp: { webhookUrl: otpWebhook }, purchases: { webhookUrl: purchaseWebhook } });
+    await api.patch("/api/admin/settings", {
+      name,
+      description,
+      announcement,
+      currency,
+      paymentTiming: timing,
+      terms,
+      otp: { webhookUrl: otpWebhook },
+      purchases: { webhookUrl: purchaseWebhook },
+      notifications: { webhookUrl: notifyWebhook },
+      tax: { enabled: taxEnabled, rate: Number(taxRate) || 0, inclusive: taxInclusive },
+    });
     setSaved(true);
     reload();
   };
@@ -1946,6 +1961,33 @@ function SettingsPanel({ store, reload }: { store: StoreSummary; reload: () => v
         </div>
         <Input label="Purchase-order webhook URL" value={purchaseWebhook} onChange={setPurchaseWebhook} />
         <p className="text-xs text-muted-foreground">When set, "Send PO" POSTs <code className="rounded bg-muted px-1">{`{ event, store, vendor, purchase, items }`}</code> to this URL so n8n can email the vendor.</p>
+      </div>
+
+      <div className="space-y-3 rounded-xl border border-border/60 p-3">
+        <div>
+          <p className="text-sm font-medium">Order notifications</p>
+          <p className="text-xs text-muted-foreground">Notify customers on order events through your automation (n8n).</p>
+        </div>
+        <Input label="Order-notification webhook URL" value={notifyWebhook} onChange={setNotifyWebhook} />
+        <p className="text-xs text-muted-foreground">When set, we POST <code className="rounded bg-muted px-1">{`{ event, store, order, customer }`}</code> on every status change (pending → delivered, cancelled, …).</p>
+      </div>
+
+      <div className="space-y-3 rounded-xl border border-border/60 p-3">
+        <div>
+          <p className="text-sm font-medium">Tax / VAT</p>
+          <p className="text-xs text-muted-foreground">Applied to the product subtotal at checkout (not delivery).</p>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={taxEnabled} onChange={(event) => setTaxEnabled(event.target.checked)} />
+          Charge tax on orders
+        </label>
+        <div className="flex items-center gap-3">
+          <Input label="Rate (%)" value={taxRate} onChange={setTaxRate} type="number" />
+          <label className="mt-5 flex items-center gap-2 whitespace-nowrap text-sm">
+            <input type="checkbox" checked={taxInclusive} disabled={!taxEnabled} onChange={(event) => setTaxInclusive(event.target.checked)} />
+            Prices include tax
+          </label>
+        </div>
       </div>
 
       <label className="block text-sm">

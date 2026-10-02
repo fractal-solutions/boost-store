@@ -91,6 +91,12 @@ export async function updateStore(
   if (body.purchases && typeof body.purchases === "object") {
     settings.purchases = { ...settings.purchases, ...(body.purchases as object) } as StoreSettings["purchases"];
   }
+  if (body.tax && typeof body.tax === "object") {
+    settings.tax = { ...settings.tax, ...(body.tax as object) } as StoreSettings["tax"];
+  }
+  if (body.notifications && typeof body.notifications === "object") {
+    settings.notifications = { ...settings.notifications, ...(body.notifications as object) } as StoreSettings["notifications"];
+  }
   if (body.accounting && typeof body.accounting === "object") {
     settings.accounting = { ...settings.accounting, ...(body.accounting as object) } as StoreSettings["accounting"];
   }
@@ -115,5 +121,25 @@ export function storeSummary(store: StoreRow, settings: StoreSettings) {
     announcement: str(store.announcement),
     theme: getTheme(store),
     settings: maskSettings(settings),
+  };
+}
+
+/** Public storefront payload — omits integrations, credentials and internal config. */
+export function publicStoreSummary(store: StoreRow, settings: StoreSettings) {
+  return {
+    id: store.id,
+    name: store.name,
+    slug: store.slug,
+    description: str(store.description),
+    currency: store.currency,
+    contactEmail: str(store.contact_email),
+    announcement: str(store.announcement),
+    theme: getTheme(store),
+    settings: {
+      paymentTiming: settings.paymentTiming,
+      pickup: settings.pickup,
+      demoDropoff: settings.demoDropoff,
+      tax: settings.tax,
+    },
   };
 }

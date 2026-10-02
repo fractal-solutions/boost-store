@@ -27,6 +27,9 @@ export const env = {
   // Purchase-order webhook (e.g. an n8n workflow) that emails/sends the PO to the vendor.
   purchaseWebhookUrl: process.env.PURCHASE_WEBHOOK_URL || "",
 
+  // Order-notification webhook (e.g. n8n) that emails/SMSes customers on order events.
+  notifyWebhookUrl: process.env.NOTIFY_WEBHOOK_URL || "",
+
   // Admin (merchant) accounts are provisioned by the operator. Public signup of
   // new admin/merchant accounts is disabled unless explicitly enabled.
   allowMerchantSignup: /^(1|true|yes|on)$/i.test(process.env.ALLOW_MERCHANT_SIGNUP || ""),

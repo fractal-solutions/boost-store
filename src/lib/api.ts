@@ -139,6 +139,7 @@ export type Order = {
   status: string;
   paymentTiming: "prepay" | "cod";
   subtotal: number;
+  tax: number;
   deliveryFee: number;
   total: number;
   currency: string;
@@ -219,6 +220,8 @@ export type StoreSettings = {
   demoDropoff: Coords;
   otp: { webhookUrl: string };
   purchases: { webhookUrl: string };
+  notifications: { webhookUrl: string };
+  tax: { enabled: boolean; rate: number; inclusive: boolean };
   terms: string;
   accounting: AccountingOptions;
 };

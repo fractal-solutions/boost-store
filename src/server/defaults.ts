@@ -23,6 +23,10 @@ export type StoreSettings = {
   otp: { webhookUrl: string };
   // Purchase-order integration (n8n or similar webhook) that sends POs to vendors.
   purchases: { webhookUrl: string };
+  // Sales tax / VAT.
+  tax: { enabled: boolean; rate: number; inclusive: boolean };
+  // Customer order notifications (n8n or similar webhook).
+  notifications: { webhookUrl: string };
   // Terms & conditions shown at signup; editable from the admin panel.
   terms: string;
   // Balance-sheet presentation options.
@@ -81,6 +85,8 @@ export function defaultSettings(): StoreSettings {
     demoDropoff: { latitude: env.demoDropoffLat, longitude: env.demoDropoffLng },
     otp: { webhookUrl: env.otpWebhookUrl },
     purchases: { webhookUrl: env.purchaseWebhookUrl },
+    tax: { enabled: false, rate: 16, inclusive: false },
+    notifications: { webhookUrl: env.notifyWebhookUrl },
     terms: DEFAULT_TERMS,
     accounting: {
       includeCash: true,

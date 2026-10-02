@@ -3,6 +3,9 @@ import type { StoreSettings } from "./defaults";
 import { getDeliveryProvider, mapUberStatus, type DeliveryAddress, type QuoteResult } from "./delivery";
 import { defaultWarehouseRow, isOpenNow, parseHours, type WarehouseRow } from "./warehouses";
 import { syncStockForStatus, transitionStock } from "./inventory";
+import { grandTotal, round2, taxAmount } from "./money";
+
+const RESERVATION_TTL_MS = Math.max(1, Number(process.env.RESERVATION_TTL_MINUTES || 30)) * 60_000;
 import {
   ApiError,
   badRequest,
@@ -25,6 +28,7 @@ export type OrderRow = {
   status: string;
   payment_timing: string;
   subtotal: number;
+  tax: number;
   delivery_fee: number;
   total: number;
   currency: string;
@@ -53,6 +57,7 @@ export type OrderRow = {
   payment_reference: string;
   payment_transaction_id: string;
   confirmed_at: string | null;
+  reservation_expires_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -167,21 +172,27 @@ export async function createOrder(
     }
 
     const lines: { id: string; product_id: string; name: string; price: number; quantity: number; image: string; line_total: number }[] = [];
+    const stockMoves: { productId: string; quantity: number; warehouseId: string }[] = [];
     const warehouseQty = new Map<string, number>();
     for (const raw of itemsInput) {
       const productId = str(raw.productId);
       const quantity = Math.trunc(Number(raw.quantity));
       if (!productId || !Number.isFinite(quantity) || quantity <= 0) throw badRequest("VALIDATION_ERROR", "Each item needs a product and a positive quantity.");
       const productRows = await tx`SELECT * FROM products WHERE id = ${productId} AND store_id = ${store.id} LIMIT 1`;
-      const product = productRows[0] as { id: string; name: string; price: number; stock: number; image: string; warehouse_id: string } | undefined;
+      const product = productRows[0] as { id: string; name: string; price: number; stock: number; image: string; warehouse_id: string; track_inventory: number } | undefined;
       if (!product) throw badRequest("VALIDATION_ERROR", `Product ${productId} was not found.`);
-      if (product.stock < quantity) throw badRequest("INSUFFICIENT_STOCK", `Only ${product.stock} left of ${product.name}.`);
-      const lineTotal = product.price * quantity;
+      const tracks = Number(product.track_inventory ?? 1) !== 0;
+      if (tracks && product.stock < quantity) throw badRequest("INSUFFICIENT_STOCK", `Only ${product.stock} left of ${product.name}.`);
+      const lineTotal = round2(product.price * quantity);
       subtotal += lineTotal;
       const warehouseId = str(product.warehouse_id) || defaultWarehouse?.id || "";
-      warehouseQty.set(warehouseId, (warehouseQty.get(warehouseId) ?? 0) + quantity);
+      if (tracks) {
+        warehouseQty.set(warehouseId, (warehouseQty.get(warehouseId) ?? 0) + quantity);
+        stockMoves.push({ productId: product.id, quantity, warehouseId });
+      }
       lines.push({ id: newId("oi"), product_id: product.id, name: product.name, price: product.price, quantity, image: product.image, line_total: lineTotal });
     }
+    subtotal = round2(subtotal);
 
     // The primary pickup is the warehouse holding the most items; a cart that
     // spans warehouses needs one pickup per warehouse (multi-stop).
@@ -203,7 +214,17 @@ export async function createOrder(
       : settings.pickup;
     const pickupStops = warehouseQty.size || 1;
 
-    const total = subtotal + fee;
+    // Reserve stock atomically, inside the transaction, so concurrent orders
+    // can't oversell (SQLite serialises write transactions).
+    for (const move of stockMoves) {
+      await tx`UPDATE products SET stock = stock - ${move.quantity}, updated_at = ${now} WHERE id = ${move.productId} AND store_id = ${store.id} AND stock >= ${move.quantity}`;
+      if (move.warehouseId) {
+        await tx`UPDATE inventory SET quantity = MAX(0, quantity - ${move.quantity}), reserved = reserved + ${move.quantity}, updated_at = ${now} WHERE store_id = ${store.id} AND product_id = ${move.productId} AND warehouse_id = ${move.warehouseId}`;
+      }
+    }
+
+    const tax = taxAmount(subtotal, settings.tax);
+    const total = grandTotal(subtotal, settings.tax, fee);
     const paymentStatus = paymentTiming === "cod" ? "cod_pending" : "unpaid";
     await tx`INSERT INTO orders ${tx({
       id: orderId,
@@ -212,6 +233,7 @@ export async function createOrder(
       status: "pending",
       payment_timing: paymentTiming,
       subtotal,
+      tax,
       delivery_fee: fee,
       total,
       currency: store.currency,
@@ -228,6 +250,8 @@ export async function createOrder(
       dropoff_latitude: dropoffLatitude,
       dropoff_longitude: dropoffLongitude,
       payment_status: paymentStatus,
+      stock_state: "reserved",
+      reservation_expires_at: paymentTiming === "cod" ? null : new Date(Date.now() + RESERVATION_TTL_MS).toISOString(),
       created_at: now,
       updated_at: now,
     })}`;
@@ -251,9 +275,6 @@ export async function createOrder(
       })}`;
     }
   });
-
-  // Reserve stock (moves it out of "on hand"; not yet deducted from the system).
-  await transitionStock(store.id, orderId, "reserved");
 
   let order = (await getOrderRow(orderId))!;
 
@@ -309,6 +330,7 @@ export async function hydrateOrder(order: OrderRow): Promise<Record<string, unkn
     status: order.status,
     paymentTiming: order.payment_timing,
     subtotal: Number(order.subtotal),
+    tax: Number(order.tax ?? 0),
     deliveryFee: Number(order.delivery_fee),
     total: Number(order.total),
     currency: order.currency,
@@ -372,6 +394,31 @@ export async function hydrateOrder(order: OrderRow): Promise<Record<string, unkn
   };
 }
 
+/** Fire-and-forget customer notification for an order status change. */
+async function notifyOrderEvent(orderId: string, status: string): Promise<void> {
+  try {
+    const order = await getOrderRow(orderId);
+    if (!order) return;
+    const store = await getStoreRow(order.store_id);
+    const url = getSettings(store).notifications?.webhookUrl?.trim();
+    if (!url) return;
+    const rows = (await db`SELECT name, email, phone FROM customers WHERE id = ${order.customer_id} LIMIT 1`) as { name: string; email: string; phone: string }[];
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event: `order.${status}`,
+        store: { id: store.id, name: store.name },
+        order: { id: order.id, status, total: order.total, currency: order.currency, trackingUrl: order.tracking_url },
+        customer: rows[0] ?? null,
+      }),
+      signal: AbortSignal.timeout(6000),
+    });
+  } catch {
+    // notifications must never break the request
+  }
+}
+
 async function appendEvent(orderId: string, status: string, message: string, location = ""): Promise<void> {
   await db`INSERT INTO order_events ${db({
     id: newId("evt"),
@@ -381,6 +428,7 @@ async function appendEvent(orderId: string, status: string, message: string, loc
     location,
     created_at: nowIso(),
   })}`;
+  void notifyOrderEvent(orderId, status);
 }
 
 export async function updateOrderStatus(orderId: string, status: string, message?: string): Promise<OrderRow> {
@@ -412,6 +460,38 @@ export async function confirmReceipt(orderId: string): Promise<Record<string, un
   }
   return hydrateOrder((await getOrderRow(orderId))!);
 }
+
+/** Customer/admin cancellation. Releases stock and queues a refund if the order was paid. */
+export async function cancelOrder(storeId: string, orderId: string, byCustomerId?: string): Promise<Record<string, unknown>> {
+  const order = await getOrderRow(orderId);
+  if (!order || order.store_id !== storeId) throw new ApiError(404, "NOT_FOUND", "Order not found.");
+  if (byCustomerId && order.customer_id !== byCustomerId) throw new ApiError(403, "FORBIDDEN", "You can only cancel your own orders.");
+  if (order.status === "cancelled") return hydrateOrder(order);
+  if (["delivered", "completed"].includes(order.status)) {
+    throw badRequest("INVALID_TRANSITION", `An order that is ${order.status} can't be cancelled.`);
+  }
+  if (["dispatched", "in_transit", "out_for_delivery"].includes(order.status)) {
+    throw badRequest("TOO_LATE", "The courier is already on the way — this order can no longer be cancelled.");
+  }
+  const refunded = order.payment_status === "paid";
+  await db`UPDATE orders SET status = 'cancelled', progress_percent = 0, payment_status = ${refunded ? "refunded" : order.payment_status}, updated_at = ${nowIso()} WHERE id = ${orderId}`;
+  await transitionStock(storeId, orderId, "released");
+  await appendEvent(orderId, "cancelled", refunded ? "Order cancelled — refund queued" : "Order cancelled");
+  return hydrateOrder((await getOrderRow(orderId))!);
+}
+
+/** Release stock held by unpaid reservations that have expired. */
+export async function releaseExpiredReservations(): Promise<number> {
+  const now = nowIso();
+  const rows = (await db`SELECT id, store_id FROM orders WHERE stock_state = 'reserved' AND reservation_expires_at IS NOT NULL AND reservation_expires_at < ${now} AND payment_status IN ('unpaid','pending') LIMIT 100`) as { id: string; store_id: string }[];
+  for (const row of rows) {
+    await transitionStock(row.store_id, row.id, "released");
+    await db`UPDATE orders SET status = 'cancelled', progress_percent = 0, updated_at = ${nowIso()} WHERE id = ${row.id}`;
+    await appendEvent(row.id, "cancelled", "Reservation expired — payment not received, stock released");
+  }
+  return rows.length;
+}
+
 
 export async function bookDelivery(order: OrderRow, store: StoreRow): Promise<OrderRow> {
   const settings = getSettings(store);

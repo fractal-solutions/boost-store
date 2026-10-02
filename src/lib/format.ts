@@ -41,6 +41,7 @@ export const PAYMENT_STATUS_LABELS: Record<string, string> = {
   unpaid: "Unpaid",
   pending: "Pending",
   paid: "Paid",
+  refunded: "Refunded",
   failed: "Failed",
   cod_pending: "Pay on delivery",
 };
@@ -54,6 +55,8 @@ export function statusTone(status: string): string {
     case "cancelled":
     case "failed":
       return "bg-red-500/15 text-red-600 dark:text-red-400";
+    case "refunded":
+      return "bg-violet-500/15 text-violet-600 dark:text-violet-400";
     case "in_transit":
     case "out_for_delivery":
     case "dispatched":

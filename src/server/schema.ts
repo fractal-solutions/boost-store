@@ -200,6 +200,7 @@ CREATE TABLE IF NOT EXISTS orders (
   status TEXT NOT NULL DEFAULT 'pending',
   payment_timing TEXT NOT NULL DEFAULT 'prepay',
   subtotal REAL NOT NULL DEFAULT 0,
+  tax REAL NOT NULL DEFAULT 0,
   delivery_fee REAL NOT NULL DEFAULT 0,
   total REAL NOT NULL DEFAULT 0,
   currency TEXT NOT NULL DEFAULT 'KES',
@@ -229,6 +230,7 @@ CREATE TABLE IF NOT EXISTS orders (
   payment_transaction_id TEXT DEFAULT '',
   stock_state TEXT NOT NULL DEFAULT '',
   confirmed_at TEXT,
+  reservation_expires_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

@@ -20,6 +20,7 @@ import {
   applyDeliveryEvent,
   applyGatewayCallback,
   bookDelivery,
+  cancelOrder,
   confirmReceipt,
   createOrder,
   getOrderById,
@@ -65,20 +66,43 @@ import { listInventory, setStock, productHistory } from "./inventory";
 import { createVendor, deleteVendor, listVendors, updateVendor } from "./vendors";
 import { createPurchase, deletePurchase, getPurchase, listPurchases, payPurchase, payVendor, receivePurchase, sendPurchase, updatePurchase } from "./purchases";
 import { accountingSummary } from "./accounting";
-import { getSettings, getStoreRow, storeSummary, updateStore, type StoreRow } from "./stores";
+import { rateLimit } from "./ratelimit";
+import { getSettings, getStoreRow, publicStoreSummary, storeSummary, updateStore, type StoreRow } from "./stores";
 import { listDeliveryProviders, type DeliveryAddress } from "./delivery";
 
 type Req = Request & { params: Record<string, string> };
-type Handler = (req: Req) => Response | Promise<Response>;
+type BunServer = Bun.Server<unknown>;
+type Handler = (req: Req, server: BunServer) => Response | Promise<Response>;
+type RouteOptions = { limit?: number; windowMs?: number; bucket?: string };
 
-function route(handler: Handler): Handler {
-  return async (req) => {
+function clientIp(req: Req, server: BunServer): string {
+  try {
+    const address = server.requestIP(req)?.address;
+    if (address) return address;
+  } catch {
+    // fall through
+  }
+  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "local";
+}
+
+function route(handler: Handler, options: RouteOptions = {}): Handler {
+  return async (req, server) => {
     try {
-      return await handler(req);
+      if (options.limit) {
+        const ok = rateLimit(`${options.bucket ?? "default"}:${clientIp(req, server)}`, options.limit, options.windowMs ?? 60_000);
+        if (!ok) throw new ApiError(429, "RATE_LIMITED", "Too many attempts. Please try again in a minute.");
+      }
+      return await handler(req, server);
     } catch (error) {
       return errorResponse(error);
     }
   };
+}
+
+function guard(req: Req, server: BunServer, bucket: string, limit: number): void {
+  if (!rateLimit(`${bucket}:${clientIp(req, server)}`, limit, 60_000)) {
+    throw new ApiError(429, "RATE_LIMITED", "Too many attempts. Please try again in a minute.");
+  }
 }
 
 async function publicStore(req: Request): Promise<{ store: StoreRow; settings: ReturnType<typeof getSettings> }> {
@@ -181,7 +205,7 @@ export function apiRoutes(): Record<string, unknown> {
     "/api/store": {
       GET: route(async (req) => {
         const { store, settings } = await publicStore(req);
-        return json(storeSummary(store, settings));
+        return json(publicStoreSummary(store, settings));
       }),
     },
 
@@ -268,13 +292,8 @@ export function apiRoutes(): Record<string, unknown> {
       GET: route(async (req) => {
         const { store } = await publicStore(req);
         const customer = await resolveCustomer(req);
-        if (customer) {
-          const orders = await listOrdersByCustomer(store.id, customer.id);
-          return json(await Promise.all(orders.map(hydrateOrder)));
-        }
-        const email = (new URL(req.url).searchParams.get("email") ?? "").trim().toLowerCase();
-        if (!email) throw badRequest("VALIDATION_ERROR", "Sign in or provide an email to list your orders.");
-        const orders = await listOrdersByEmail(store.id, email);
+        if (!customer) throw new ApiError(401, "UNAUTHORIZED", "Sign in to view your orders.");
+        const orders = await listOrdersByCustomer(store.id, customer.id);
         return json(await Promise.all(orders.map(hydrateOrder)));
       }),
       POST: route(async (req) => {
@@ -309,6 +328,15 @@ export function apiRoutes(): Record<string, unknown> {
         const order = await getOrderById(store.id, req.params.id);
         if (!order) throw notFound("Order not found.");
         return json(await confirmReceipt(order.id));
+      }),
+    },
+
+    "/api/orders/:id/cancel": {
+      POST: route(async (req) => {
+        const { store } = await publicStore(req);
+        const customer = await resolveCustomer(req);
+        if (!customer) throw new ApiError(401, "UNAUTHORIZED", "Sign in to cancel your order.");
+        return json(await cancelOrder(store.id, req.params.id, customer.id));
       }),
     },
 
@@ -350,7 +378,8 @@ export function apiRoutes(): Record<string, unknown> {
     // --- auth ---
 
     "/api/auth/register": {
-      POST: route(async (req) => {
+      POST: route(async (req, server) => {
+        guard(req, server, "auth-register", 10);
         if (!env.allowMerchantSignup) {
           throw new ApiError(403, "SIGNUP_DISABLED", "Admin accounts are provisioned by the operator.");
         }
@@ -360,7 +389,8 @@ export function apiRoutes(): Record<string, unknown> {
     },
 
     "/api/auth/login": {
-      POST: route(async (req) => {
+      POST: route(async (req, server) => {
+        guard(req, server, "auth-login", 10);
         const { user, token } = await login(await readJson(req));
         return Response.json({ success: true, data: user }, { headers: { "Set-Cookie": cookieHeader(SESSION_COOKIE, token) } });
       }),
@@ -444,7 +474,8 @@ export function apiRoutes(): Record<string, unknown> {
     // --- unified accounts (admin + shopper share one login/logout) ---
 
     "/api/account/login": {
-      POST: route(async (req) => {
+      POST: route(async (req, server) => {
+        guard(req, server, "account-login", 10);
         const { store } = await publicStore(req);
         const { account, cookie, token } = await loginAccount(store, await readJson(req));
         return Response.json({ success: true, data: account }, { headers: { "Set-Cookie": cookieHeader(cookie, token) } });
@@ -452,14 +483,16 @@ export function apiRoutes(): Record<string, unknown> {
     },
 
     "/api/account/register": {
-      POST: route(async (req) => {
+      POST: route(async (req, server) => {
+        guard(req, server, "account-register", 10);
         const { store } = await publicStore(req);
         return json(await registerCustomer(store, await readJson(req)), 201);
       }),
     },
 
     "/api/account/verify": {
-      POST: route(async (req) => {
+      POST: route(async (req, server) => {
+        guard(req, server, "account-verify", 20);
         const { store } = await publicStore(req);
         const { user, token } = await verifySignup(store, await readJson(req));
         return Response.json({ success: true, data: accountFromCustomer(user) }, { headers: { "Set-Cookie": cookieHeader(CUSTOMER_COOKIE, token) } });
@@ -481,14 +514,16 @@ export function apiRoutes(): Record<string, unknown> {
     },
 
     "/api/account/forgot": {
-      POST: route(async (req) => {
+      POST: route(async (req, server) => {
+        guard(req, server, "account-forgot", 5);
         const { store } = await publicStore(req);
         return json(await forgotPassword(store, await readJson(req)));
       }),
     },
 
     "/api/account/reset": {
-      POST: route(async (req) => {
+      POST: route(async (req, server) => {
+        guard(req, server, "account-reset", 10);
         const { store } = await publicStore(req);
         const { user, token } = await resetPassword(store, await readJson(req));
         return Response.json({ success: true, data: accountFromCustomer(user) }, { headers: { "Set-Cookie": cookieHeader(CUSTOMER_COOKIE, token) } });

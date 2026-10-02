@@ -114,6 +114,11 @@ export function TrackOrder({ orderId, onBack, onShop }: { orderId: string; onBac
   const isCompleted = order.status === "completed";
   const isDelivered = order.status === "delivered";
   const needsPayment = order.paymentTiming === "prepay" && ["unpaid", "pending", "failed"].includes(order.paymentStatus);
+  const canCancel = !isCompleted && !isDelivered && order.status !== "cancelled" && !["dispatched", "in_transit", "out_for_delivery"].includes(order.status);
+  const cancelOrder = () => {
+    if (!window.confirm("Cancel this order? Any payment will be refunded.")) return;
+    void action(() => api.post<Order>(`/api/orders/${order.id}/cancel`));
+  };
 
   return (
     <div className="space-y-4">
@@ -272,6 +277,7 @@ export function TrackOrder({ orderId, onBack, onShop }: { orderId: string; onBac
             <Line label="Order" value={order.id} mono />
             <Line label="Payment" value={PAYMENT_STATUS_LABELS[order.paymentStatus] ?? order.paymentStatus} />
             <Line label="Subtotal" value={formatMoney(order.subtotal, order.currency)} />
+            {order.tax > 0 && <Line label="Tax / VAT" value={formatMoney(order.tax, order.currency)} />}
             <Line label="Delivery" value={formatMoney(order.deliveryFee, order.currency)} />
             <div className="flex justify-between border-t border-border/60 pt-2 font-semibold">
               <span>Total</span>
@@ -301,6 +307,16 @@ export function TrackOrder({ orderId, onBack, onShop }: { orderId: string; onBac
         </div>
         <OrderTimeline events={order.events} />
       </div>
+
+      {/* Cancel order */}
+      {canCancel && (
+        <div className="flex flex-wrap items-center justify-between gap-3 squircle border border-border/60 bg-card p-4 shadow-sm">
+          <p className="text-sm text-muted-foreground">Changed your mind? You can cancel before the courier is dispatched.</p>
+          <button onClick={cancelOrder} disabled={busy} className="rounded-full border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-50">
+            Cancel order
+          </button>
+        </div>
+      )}
 
       {error && <p className="text-sm text-red-600">{error}</p>}
     </div>

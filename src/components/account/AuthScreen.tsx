@@ -97,9 +97,9 @@ export function AuthScreen({
       if (!acceptTerms) throw new Error("Please accept the terms and conditions to continue.");
       if (!gender) throw new Error("Please select your gender.");
       if (!birthday) throw new Error("Please enter your birthday.");
-      const res = await api.post<{ email: string; delivered: boolean; demoCode?: string }>("/api/account/register", { name, email, phone, birthday, gender, password });
+      const res = await api.post<{ email: string; delivered: boolean; configured: boolean; demoCode?: string }>("/api/account/register", { name, email, phone, birthday, gender, password });
       setDemoCode(res.demoCode ?? "");
-      setNotice(res.delivered ? "We sent a 6-digit code to your email and WhatsApp." : "No OTP service configured — use the demo code below.");
+      setNotice(res.demoCode ? "No OTP service configured — use the demo code below." : res.delivered ? "We sent a 6-digit code to your email and WhatsApp." : "We couldn't reach the OTP service. Please try again.");
       setMode("otp");
     });
 
@@ -108,9 +108,9 @@ export function AuthScreen({
 
   const doForgot = () =>
     run(async () => {
-      const res = await api.post<{ email: string; delivered: boolean; demoCode?: string }>("/api/account/forgot", { email });
+      const res = await api.post<{ email: string; delivered: boolean; configured: boolean; demoCode?: string }>("/api/account/forgot", { email });
       setDemoCode(res.demoCode ?? "");
-      setNotice(res.delivered ? "If that email is registered, we sent a reset code." : "No OTP service configured — use the demo code below.");
+      setNotice(res.demoCode ? "No OTP service configured — use the demo code below." : res.delivered ? "If that email is registered, we sent a reset code." : "We couldn't reach the OTP service. Please try again.");
       setMode("reset");
     });
 

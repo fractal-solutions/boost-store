@@ -1,6 +1,7 @@
 import { serve } from "bun";
 import index from "./index.html";
 import { env } from "./server/env";
+import { releaseExpiredReservations } from "./server/orders";
 import { apiRoutes } from "./server/routes";
 
 // API routes are matched first; everything else falls through to the SPA.
@@ -24,3 +25,9 @@ const server = serve({
 });
 
 console.log(`Boost Store listening on http://0.0.0.0:${env.port} (this computer: http://localhost:${env.port})`);
+
+// Release stock held by unpaid reservations past their TTL.
+const sweep = setInterval(() => {
+  releaseExpiredReservations().catch((error) => console.error("reservation sweep failed", error));
+}, 60_000);
+(sweep as { unref?: () => void }).unref?.();

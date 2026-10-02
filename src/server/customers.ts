@@ -103,11 +103,8 @@ function generateCode(): string {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
-/** Send the code to the configured webhook (n8n → email/WhatsApp). Returns false when unconfigured or unreachable. */
-async function sendOtpWebhook(store: StoreRow, payload: Record<string, unknown>): Promise<boolean> {
-  const settings = getSettings(store);
-  const url = settings.otp?.webhookUrl?.trim();
-  if (!url) return false;
+/** Send the code to the configured webhook (n8n → email/WhatsApp). */
+async function sendOtpWebhook(url: string, store: StoreRow, payload: Record<string, unknown>): Promise<boolean> {
   try {
     const response = await fetch(url, {
       method: "POST",
@@ -121,7 +118,7 @@ async function sendOtpWebhook(store: StoreRow, payload: Record<string, unknown>)
   }
 }
 
-async function issueOtp(store: StoreRow, email: string, phone: string, purpose: "signup" | "reset"): Promise<{ code: string; delivered: boolean }> {
+async function issueOtp(store: StoreRow, email: string, phone: string, purpose: "signup" | "reset"): Promise<{ code: string; configured: boolean; delivered: boolean }> {
   // Invalidate previous pending codes for this purpose.
   await db`UPDATE customer_otps SET status = 'superseded' WHERE store_id = ${store.id} AND email = ${email} AND purpose = ${purpose} AND status = 'pending'`;
   const code = generateCode();
@@ -137,15 +134,17 @@ async function issueOtp(store: StoreRow, email: string, phone: string, purpose: 
     expires_at: new Date(Date.now() + OTP_TTL_MS).toISOString(),
     created_at: nowIso(),
   })}`;
-  const delivered = await sendOtpWebhook(store, {
+  const url = getSettings(store).otp?.webhookUrl?.trim() ?? "";
+  const configured = Boolean(url);
+  const delivered = configured && (await sendOtpWebhook(url, store, {
     event: purpose === "signup" ? "customer.otp_requested" : "customer.password_reset_requested",
     purpose,
     otp_code: code,
     email,
     phone,
     expires_in_minutes: OTP_TTL_MS / 60000,
-  });
-  return { code, delivered };
+  }));
+  return { code, configured, delivered };
 }
 
 async function consumeOtp(storeId: string, email: string, purpose: string, code: string): Promise<{ ok: boolean; reason?: string }> {
@@ -170,7 +169,7 @@ async function consumeOtp(storeId: string, email: string, purpose: string, code:
 
 // --- flows ---
 
-export async function registerCustomer(store: StoreRow, body: Record<string, unknown>): Promise<{ email: string; delivered: boolean; demoCode?: string }> {
+export async function registerCustomer(store: StoreRow, body: Record<string, unknown>): Promise<{ email: string; delivered: boolean; configured: boolean; demoCode?: string }> {
   const name = String(body.name ?? "").trim();
   const email = String(body.email ?? "").trim().toLowerCase();
   const phone = normalizePhone(String(body.phone ?? ""));
@@ -210,8 +209,8 @@ export async function registerCustomer(store: StoreRow, body: Record<string, unk
     })}`;
   }
 
-  const { code, delivered } = await issueOtp(store, email, phone, "signup");
-  return { email, delivered, demoCode: delivered ? undefined : code };
+  const { code, delivered, configured } = await issueOtp(store, email, phone, "signup");
+  return { email, delivered, configured, demoCode: configured ? undefined : code };
 }
 
 export async function verifySignup(store: StoreRow, body: Record<string, unknown>): Promise<{ user: CustomerPublic; token: string }> {
@@ -234,22 +233,22 @@ export async function loginCustomer(store: StoreRow, body: Record<string, unknow
     throw unauthorized("Invalid email or password.");
   }
   if (Number(customer.verified) !== 1) {
-    const { code, delivered } = await issueOtp(store, email, customer.phone, "signup");
-    throw new ApiError(403, "UNVERIFIED", `Verify your account to continue. Code sent${delivered ? "" : ` (demo code: ${code})`}.`);
+    const { code, configured } = await issueOtp(store, email, customer.phone, "signup");
+    throw new ApiError(403, "UNVERIFIED", `Verify your account to continue. Code sent${configured ? "" : ` (demo code: ${code})`}.`);
   }
   await db`UPDATE customers SET last_login_at = ${nowIso()} WHERE id = ${customer.id}`;
   const token = await createSession(customer.id);
   return { user: toPublic(customer), token };
 }
 
-export async function forgotPassword(store: StoreRow, body: Record<string, unknown>): Promise<{ email: string; delivered: boolean; demoCode?: string }> {
+export async function forgotPassword(store: StoreRow, body: Record<string, unknown>): Promise<{ email: string; delivered: boolean; configured: boolean; demoCode?: string }> {
   const email = String(body.email ?? "").trim().toLowerCase();
   if (!isEmail(email)) throw badRequest("VALIDATION_ERROR", "Enter a valid email address.");
   const customer = await findCustomerByEmail(store.id, email);
   // Always respond the same way to avoid leaking which emails exist.
-  if (!customer) return { email, delivered: true };
-  const { code, delivered } = await issueOtp(store, email, customer.phone, "reset");
-  return { email, delivered, demoCode: delivered ? undefined : code };
+  if (!customer) return { email, delivered: true, configured: true };
+  const { code, delivered, configured } = await issueOtp(store, email, customer.phone, "reset");
+  return { email, delivered, configured, demoCode: configured ? undefined : code };
 }
 
 export async function resetPassword(store: StoreRow, body: Record<string, unknown>): Promise<{ user: CustomerPublic; token: string }> {

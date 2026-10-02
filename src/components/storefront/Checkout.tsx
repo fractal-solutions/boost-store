@@ -19,6 +19,7 @@ import { ProductImage } from "../ui/ProductImage";
 import { api, type Account, type Coords, type Order, type Product, type StoreSummary } from "@/lib/api";
 import { fetchRoute, formatDistance, formatDuration, reverseGeocode, type Place, type RouteResult } from "@/lib/mapConfig";
 import { formatMoney } from "@/lib/format";
+import { grandTotal, taxAmount } from "@/server/money";
 import { cn } from "@/lib/utils";
 
 type CartItem = { product: Product; quantity: number };
@@ -71,7 +72,8 @@ export function Checkout({
 
   const pickup = useMemo<Coords>(() => ({ latitude: store.settings.pickup.latitude, longitude: store.settings.pickup.longitude }), [store]);
   const subtotal = cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
-  const total = subtotal + (quote?.fee ?? 0);
+  const tax = taxAmount(subtotal, store.settings.tax);
+  const total = grandTotal(subtotal, store.settings.tax, quote?.fee ?? 0);
 
   useEffect(() => {
     void reverseGeocode(store.settings.demoDropoff).then((resolved) => { if (resolved) setPlace(resolved); });
@@ -303,6 +305,7 @@ export function Checkout({
               </ul>
               <div className="mt-3 space-y-1 border-t border-border/60 pt-3 text-sm">
                 <Row label="Subtotal" value={formatMoney(subtotal, store.currency)} />
+                {tax > 0 && <Row label={store.settings.tax.inclusive ? "Tax / VAT (incl.)" : "Tax / VAT"} value={formatMoney(tax, store.currency)} />}
                 <Row label="Delivery" value={quote ? formatMoney(quote.fee, store.currency) : "—"} />
                 <div className="flex justify-between pt-1 text-base font-semibold">
                   <span>Total</span>

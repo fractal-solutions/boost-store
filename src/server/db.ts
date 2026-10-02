@@ -39,6 +39,8 @@ const migrations = [
   "ALTER TABLE products ADD COLUMN cost REAL NOT NULL DEFAULT 0",
   "ALTER TABLE products ADD COLUMN track_inventory INTEGER NOT NULL DEFAULT 1",
   "ALTER TABLE purchases ADD COLUMN sent_at TEXT",
+  "ALTER TABLE orders ADD COLUMN tax REAL NOT NULL DEFAULT 0",
+  "ALTER TABLE orders ADD COLUMN reservation_expires_at TEXT",
 ];
 for (const statement of migrations) {
   try {
